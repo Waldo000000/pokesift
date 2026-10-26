@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: pokesift-dev
+    runtime: python
+    plan: free
+    branch: main
+    buildCommand: python -m unittest discover -s tests -v
+    startCommand: python server.py
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.14
