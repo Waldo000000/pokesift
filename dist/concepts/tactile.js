@@ -95,7 +95,7 @@
     clearDrag();if(table.hasPointerCapture(e.pointerId))table.releasePointerCapture(e.pointerId);if(!c)return;
     if(current.moved&&hit?.hasAttribute('data-pile-drop'))dropInto(c,from);
     else if(current.moved&&hit?.hasAttribute('data-slot')&&Number(hit.dataset.slot)!==locate(c.key).slot)dropInto(c,from,Number(hit.dataset.slot));
-    else cardDetail(c,{from,holding:current.moved});e.preventDefault();
+    else {cardDetail(c,{from,holding:current.moved});if(current.moved)current.source.classList.add('lifted-out');}e.preventDefault();
   });
   table.addEventListener('pointercancel',clearDrag);table.addEventListener('lostpointercapture',()=>{if(drag)clearDrag();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&drag){e.preventDefault();clearDrag();}});
