@@ -23,7 +23,7 @@
       <div class="card-shadow" aria-hidden="true"></div>
       <button id="card" class="card" aria-label="Tilt Charizard. Drag, or use the arrow keys. Press Home to reset." aria-describedby="gesture-hint">
         <img id="card-art" alt="Charizard Base Set 2 Pokémon card" draggable="false">
-        <span class="foil" aria-hidden="true"></span><span class="glare" aria-hidden="true"></span><span class="edge" aria-hidden="true"></span>
+        <span class="foil" aria-hidden="true"></span><canvas id="foil-flecks" width="560" height="360" aria-hidden="true"></canvas><span class="foil-light" aria-hidden="true"></span><span class="glare" aria-hidden="true"></span><span class="edge" aria-hidden="true"></span>
       </button>
     </div>
     <p class="gesture-hint" id="gesture-hint">Hold & drag to catch the light <span>↔</span></p>
@@ -34,7 +34,7 @@
   </main>
   <footer>
     <div class="samples" aria-label="Sample cards"><button data-card="6" aria-pressed="true">Charizard</button><button data-card="9" aria-pressed="false">Blastoise</button><button data-card="25" aria-pressed="false">Pikachu</button></div>
-    <label class="foil-toggle"><input type="checkbox" id="foil-toggle"><span class="switch" aria-hidden="true"></span>Try foil shimmer</label>
+    <label class="foil-toggle"><input type="checkbox" id="foil-toggle" checked><span class="switch" aria-hidden="true"></span>Foil shimmer</label>
     <p>Drag to tilt · Arrow keys work too · No scans used</p>
   </footer>
 </body>
