@@ -33,7 +33,7 @@
   // One pointer-driven fan is shared by the full browser and Pokémon details.
   function makeFan(host,list,{initialIndex=Math.max(0,list.length-1),onChange=()=>{},onOpen=cardDetail}={}) {
     const controller=new AbortController(),signal=controller.signal;
-    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0,revealTarget=1,revealAnchor=position;
+    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0,revealTarget=1,revealAnchor=position,fastMotion=false,revealFast=false;
     host.classList.add('tactile-fan');host.replaceChildren();
     const buttons=list.map((c,i)=>{const b=document.createElement('button');b.className='fan-card';b.dataset.fanIndex=i;b.setAttribute('aria-label',c.name+', '+valueOfCard(c));b.innerHTML=`<img src="${escapeHTML(img(c))}" alt="${escapeHTML(c.name)} ${escapeHTML(c.edition)}" draggable="false" loading="lazy" decoding="async"><span class="fan-price">${valueOfCard(c)}</span>`;b.onclick=e=>{if(e.detail===0){if(Math.round(position)===i)onOpen(c);else go(i);}};host.append(b);return b;});
     const step=()=>host.clientWidth<500?105:145;
@@ -49,21 +49,21 @@
     // that opening with the selection made a steady drag reverse a card's path.
     function maybeReveal(){if(!gesture&&!frame&&reveal===0){revealAnchor=position;revealTo(1);}}
     function revealTo(next){
-      if(revealTarget===next&&revealFrame)return;
-      revealTarget=next;cancelAnimationFrame(revealFrame);revealFrame=0;
+      if(revealTarget===next&&revealFrame&&revealFast===fastMotion)return;
+      revealTarget=next;revealFast=fastMotion;cancelAnimationFrame(revealFrame);revealFrame=0;
       if(reduced()||reveal===next){reveal=next;paint();return;}
-      const from=reveal,started=performance.now(),duration=next===1?650:460;
+      const from=reveal,started=performance.now(),duration=fastMotion?(next===1?220:130):(next===1?650:460);
       function tick(now){const t=Math.min(1,Math.max(0,(now-started)/duration)),ease=t*t*(3-2*t);reveal=from+(next-from)*ease;paint();if(t<1)revealFrame=requestAnimationFrame(tick);else{revealFrame=0;if(next===0)maybeReveal();}}
       revealFrame=requestAnimationFrame(tick);
     }
-    function go(next){
-      target=Math.max(0,Math.min(list.length-1,next));cancelAnimationFrame(frame);frame=0;
+    function go(next,{flick=false}={}){
+      fastMotion=flick;target=Math.max(0,Math.min(list.length-1,next));cancelAnimationFrame(frame);frame=0;
       if(reduced()){cancelAnimationFrame(revealFrame);revealFrame=0;position=target;revealAnchor=position;reveal=revealTarget=1;paint();return;}
       revealTo(0);
-      const from=position,started=performance.now();
+      const from=position,started=performance.now(),duration=flick?160:320;
       if(Math.abs(target-from)<.001){position=target;paint();maybeReveal();return;}
-      // A bounded ease replaces the spring and flick impulse: no overshoot.
-      function settle(now){const t=Math.min(1,Math.max(0,(now-started)/320));position=from+(target-from)*(1-Math.pow(1-t,3));paint();if(t<1)frame=requestAnimationFrame(settle);else{position=target;frame=0;paint();maybeReveal();}}
+      // Both dragging and single-card flicks use this bounded ease: no overshoot.
+      function settle(now){const t=Math.min(1,Math.max(0,(now-started)/duration));position=from+(target-from)*(1-Math.pow(1-t,3));paint();if(t<1)frame=requestAnimationFrame(settle);else{position=target;frame=0;paint();maybeReveal();}}
       frame=requestAnimationFrame(settle);
     }
     function follow(){
@@ -72,9 +72,15 @@
       function tick(now){const dt=Math.max(0,Math.min(50,now-previous));previous=now;position+=(target-position)*(1-Math.exp(-dt/75));if(Math.abs(target-position)<.0005){position=target;frame=0;paint();return;}paint();frame=requestAnimationFrame(tick);}
       frame=requestAnimationFrame(tick);
     }
-    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length)return;cancelAnimationFrame(frame);frame=0;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,moved:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
-    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x;if(Math.abs(dx)>4&&!gesture.moved){gesture.moved=true;revealTo(0);}if(!gesture.moved)return;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;follow();},{signal});
-    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved)go(Math.round(target));else if(g.card>=0){if(g.card===Math.round(position)){go(Math.round(position));onOpen(list[g.card]);}else go(g.card);}else go(Math.round(position));e.preventDefault();}
+    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length||gesture)return;const startIndex=Math.round(frame?target:position),now=performance.now();cancelAnimationFrame(frame);frame=0;fastMotion=false;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,startIndex,started:now,lastMove:now,lastX:e.clientX,path:0,moved:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
+    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,delta=Math.abs(e.clientX-gesture.lastX);if(delta>.5){gesture.path+=delta;gesture.lastX=e.clientX;gesture.lastMove=performance.now();}if(Math.abs(dx)>4&&!gesture.moved){gesture.moved=true;revealTo(0);}if(!gesture.moved)return;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;follow();},{signal});
+    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){
+        const now=performance.now(),dx=e.clientX-g.x,dy=e.clientY-g.y,distance=Math.abs(dx),duration=now-g.started;
+        // A short, quick release steps one card. A hold, pause, reversal or long
+        // sweep remains a drag, with no velocity impulse added to its motion.
+        const flick=duration<=260&&distance>=16&&distance<=step()*.85&&distance/Math.max(1,duration)>=.25&&now-g.lastMove<=100&&distance>=Math.abs(dy)*1.5&&distance>=g.path*.85;
+        go(flick?g.startIndex-Math.sign(dx):Math.round(target),{flick});
+      }else if(g.card>=0){if(g.card===Math.round(position)){go(Math.round(position));onOpen(list[g.card]);}else go(g.card);}else go(Math.round(position));e.preventDefault();}
     host.addEventListener('pointerup',e=>release(e),{signal});host.addEventListener('pointercancel',e=>release(e,true),{signal});host.addEventListener('lostpointercapture',e=>{if(gesture)release(e,true);},{signal});
     host.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();go(target+(e.key==='ArrowRight'?1:-1));}},{signal});
     const observer=new ResizeObserver(paint);observer.observe(host);paint();
