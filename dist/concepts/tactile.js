@@ -33,34 +33,43 @@
   // One pointer-driven fan is shared by the full browser and Pokémon details.
   function makeFan(host,list,{initialIndex=Math.max(0,list.length-1),onChange=()=>{},onOpen=cardDetail}={}) {
     const controller=new AbortController(),signal=controller.signal;
-    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0,revealTarget=1,revealAnchor=position,fastMotion=false,revealFast=false;
+    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0,revealTarget=1,revealAnchor=position,gapWeights=null,gestureTimer=0;
     host.classList.add('tactile-fan');host.replaceChildren();
     const buttons=list.map((c,i)=>{const b=document.createElement('button');b.className='fan-card';b.dataset.fanIndex=i;b.setAttribute('aria-label',c.name+', '+valueOfCard(c));b.innerHTML=`<img src="${escapeHTML(img(c))}" alt="${escapeHTML(c.name)} ${escapeHTML(c.edition)}" draggable="false" loading="lazy" decoding="async"><span class="fan-price">${valueOfCard(c)}</span>`;b.onclick=e=>{if(e.detail===0){if(Math.round(position)===i)onOpen(c);else go(i);}};host.append(b);return b;});
     const step=()=>host.clientWidth<500?105:145;
     function paint(){
       const mobile=host.clientWidth<500,selected=Math.max(0,Math.min(list.length-1,Math.round(position)));
       const cardWidth=buttons[0]?.offsetWidth||180,spacing=mobile?30:43,radius=mobile?900:1250;
-      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),fraction=Math.max(0,Math.min(1,i-revealAnchor)),opening=fraction*fraction*(3-2*fraction),arc=d*spacing+opening*cardWidth*.88*reveal,angle=arc/radius;
+      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),fraction=Math.max(0,Math.min(1,i-revealAnchor)),opening=gapWeights?.[i]??fraction*fraction*(3-2*fraction),arc=d*spacing+opening*cardWidth*.88*reveal,angle=arc/radius;
         b.style.transform=`translateX(calc(-50% + ${Math.sin(angle)*radius}px)) translateY(${(1-Math.cos(angle))*radius}px) rotate(${angle*180/Math.PI}deg)`;const fade=list.length>30?Math.max(0,Math.min(1,(a-10)/8)):0,opacity=1-fade*fade*(3-2*fade);b.style.opacity=String(opacity);b.style.zIndex=String(i+1);b.style.visibility=opacity>0?'visible':'hidden';b.style.willChange=opacity>0?'transform':'auto';b.style.pointerEvents=opacity>0?'auto':'none';b.classList.toggle('selected',i===selected);b.tabIndex=i===selected?0:-1;b.setAttribute('aria-pressed',String(i===selected));b.querySelector('.fan-price').style.opacity=String(Math.max(0,1-a*2));});
       host.dataset.position=position.toFixed(3);host.dataset.reveal=reveal.toFixed(3);
       if(selected!==lastLabel){lastLabel=selected;onChange(selected,list[selected]);}
     }
     // Keep the opening attached to the same cards until it has closed. Moving
     // that opening with the selection made a steady drag reverse a card's path.
-    function maybeReveal(){if(!gesture&&!frame&&reveal===0){revealAnchor=position;revealTo(1);}}
+    function maybeReveal(){if(!gesture&&!frame&&reveal===0){gapWeights=null;revealAnchor=position;revealTo(1);}}
     function revealTo(next){
-      if(revealTarget===next&&revealFrame&&revealFast===fastMotion)return;
-      revealTarget=next;revealFast=fastMotion;cancelAnimationFrame(revealFrame);revealFrame=0;
+      if(revealTarget===next&&revealFrame)return;
+      revealTarget=next;cancelAnimationFrame(revealFrame);revealFrame=0;
       if(reduced()||reveal===next){reveal=next;paint();return;}
-      const from=reveal,started=performance.now(),duration=fastMotion?(next===1?220:130):(next===1?650:460);
+      const from=reveal,started=performance.now(),duration=next===1?650:460;
       function tick(now){const t=Math.min(1,Math.max(0,(now-started)/duration)),ease=t*t*(3-2*t);reveal=from+(next-from)*ease;paint();if(t<1)revealFrame=requestAnimationFrame(tick);else{revealFrame=0;if(next===0)maybeReveal();}}
       revealFrame=requestAnimationFrame(tick);
     }
     function go(next,{flick=false}={}){
-      fastMotion=flick;target=Math.max(0,Math.min(list.length-1,next));cancelAnimationFrame(frame);frame=0;
-      if(reduced()){cancelAnimationFrame(revealFrame);revealFrame=0;position=target;revealAnchor=position;reveal=revealTarget=1;paint();return;}
+      target=Math.max(0,Math.min(list.length-1,next));cancelAnimationFrame(frame);frame=0;
+      if(reduced()){cancelAnimationFrame(revealFrame);revealFrame=0;position=target;gapWeights=null;revealAnchor=position;reveal=revealTarget=1;paint();return;}
+      if(flick){
+        // Move directly between the two open poses. Interpolating each card's
+        // gap offset preserves the fan's opening throughout the transition.
+        cancelAnimationFrame(revealFrame);revealFrame=0;
+        const from=position,started=performance.now(),gaps=list.map((_,i)=>{const f=Math.max(0,Math.min(1,i-revealAnchor));return (gapWeights?.[i]??f*f*(3-2*f))*reveal;});
+        gapWeights=gaps;reveal=revealTarget=1;
+        function stepFlick(now){const t=Math.min(1,Math.max(0,(now-started)/220)),ease=1-Math.pow(1-t,3);position=from+(target-from)*ease;gapWeights=gaps.map((gap,i)=>gap+((i>target?1:0)-gap)*ease);if(t===1){position=target;revealAnchor=target;gapWeights=null;frame=0;}paint();if(t<1)frame=requestAnimationFrame(stepFlick);}
+        frame=requestAnimationFrame(stepFlick);return;
+      }
       revealTo(0);
-      const from=position,started=performance.now(),duration=flick?160:320;
+      const from=position,started=performance.now(),duration=320;
       if(Math.abs(target-from)<.001){position=target;paint();maybeReveal();return;}
       // Both dragging and single-card flicks use this bounded ease: no overshoot.
       function settle(now){const t=Math.min(1,Math.max(0,(now-started)/duration));position=from+(target-from)*(1-Math.pow(1-t,3));paint();if(t<1)frame=requestAnimationFrame(settle);else{position=target;frame=0;paint();maybeReveal();}}
@@ -72,19 +81,22 @@
       function tick(now){const dt=Math.max(0,Math.min(50,now-previous));previous=now;position+=(target-position)*(1-Math.exp(-dt/75));if(Math.abs(target-position)<.0005){position=target;frame=0;paint();return;}paint();frame=requestAnimationFrame(tick);}
       frame=requestAnimationFrame(tick);
     }
-    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length||gesture)return;const startIndex=Math.round(frame?target:position),now=performance.now();cancelAnimationFrame(frame);frame=0;fastMotion=false;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,startIndex,started:now,lastMove:now,lastX:e.clientX,path:0,moved:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
-    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,delta=Math.abs(e.clientX-gesture.lastX);if(delta>.5){gesture.path+=delta;gesture.lastX=e.clientX;gesture.lastMove=performance.now();}if(Math.abs(dx)>4&&!gesture.moved){gesture.moved=true;revealTo(0);}if(!gesture.moved)return;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;follow();},{signal});
-    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){
+    function beginDrag(){if(!gesture||!gesture.moved||gesture.dragging)return;clearTimeout(gestureTimer);gesture.dragging=true;revealTo(0);}
+    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length||gesture)return;const startIndex=Math.round(frame?target:position),now=performance.now();cancelAnimationFrame(frame);frame=0;cancelAnimationFrame(revealFrame);revealFrame=0;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,startIndex,started:now,lastMove:now,lastX:e.clientX,path:0,moved:false,dragging:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
+    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,delta=Math.abs(e.clientX-gesture.lastX);if(delta>.5){gesture.path+=delta;gesture.lastX=e.clientX;gesture.lastMove=performance.now();}if(Math.abs(dx)>4)gesture.moved=true;if(!gesture.moved)return;
+      if(!gesture.dragging){const remaining=260-(performance.now()-gesture.started);clearTimeout(gestureTimer);if(remaining<=0||Math.abs(dx)>step()*.85||Math.abs(dx)<gesture.path*.85)beginDrag();else gestureTimer=setTimeout(beginDrag,Math.min(100,remaining));}
+      const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;follow();},{signal});
+    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;clearTimeout(gestureTimer);gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){
         const now=performance.now(),dx=e.clientX-g.x,dy=e.clientY-g.y,distance=Math.abs(dx),duration=now-g.started;
         // A short, quick release steps one card. A hold, pause, reversal or long
         // sweep remains a drag, with no velocity impulse added to its motion.
-        const flick=duration<=260&&distance>=16&&distance<=step()*.85&&distance/Math.max(1,duration)>=.25&&now-g.lastMove<=100&&distance>=Math.abs(dy)*1.5&&distance>=g.path*.85;
+        const flick=!g.dragging&&duration<=260&&distance>=16&&distance<=step()*.85&&distance/Math.max(1,duration)>=.25&&now-g.lastMove<=100&&distance>=Math.abs(dy)*1.5&&distance>=g.path*.85;
         go(flick?g.startIndex-Math.sign(dx):Math.round(target),{flick});
       }else if(g.card>=0){if(g.card===Math.round(position)){go(Math.round(position));onOpen(list[g.card]);}else go(g.card);}else go(Math.round(position));e.preventDefault();}
     host.addEventListener('pointerup',e=>release(e),{signal});host.addEventListener('pointercancel',e=>release(e,true),{signal});host.addEventListener('lostpointercapture',e=>{if(gesture)release(e,true);},{signal});
     host.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();go(target+(e.key==='ArrowRight'?1:-1));}},{signal});
     const observer=new ResizeObserver(paint);observer.observe(host);paint();
-    return {go,step:delta=>go(target+delta),destroy(){cancelAnimationFrame(frame);cancelAnimationFrame(revealFrame);controller.abort();observer.disconnect();},get selected(){return Math.round(position);}};
+    return {go,step:delta=>go(target+delta),destroy(){clearTimeout(gestureTimer);cancelAnimationFrame(frame);cancelAnimationFrame(revealFrame);controller.abort();observer.disconnect();},get selected(){return Math.round(position);}};
   }
 
   const aside=$('binder-layout').querySelector('.binder-aside');
