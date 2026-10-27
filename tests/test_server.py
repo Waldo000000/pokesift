@@ -121,6 +121,19 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status, 502)
         self.assertNotIn('secret-provider-key', json.dumps(body))
 
+    def test_price_refresh_is_authenticated_and_reports_stop_codes(self):
+        from unittest.mock import Mock
+        from pikaqian import ProviderError
+        body = {'cardId': 'db119de9-d875-467c-b962-4bdbdd7dc7ee'}
+        self.server.pikaqian.prices = Mock(side_effect=ProviderError('tier_required'))
+        self.assertEqual(self.auth_request('/api/pikaqian-prices', body)[0], 401)
+        self.assertEqual(self.auth_request('/api/pikaqian-prices', body, self.cookie, 'https://evil.example')[0], 403)
+        self.server.pikaqian.prices.assert_not_called()
+        status, result, _ = self.auth_request('/api/pikaqian-prices', body, self.cookie)
+        self.assertEqual(status, 403)
+        self.assertEqual(result['error']['code'], 'tier_required')
+        self.assertEqual(self.calls, [])
+
     def test_pairing_cookie_and_invite_creation(self):
         invite = mint_token(PASSWORD, 'invite', 'http://' + self.host)
         status, result, headers = self.auth_request('/api/pair', {'invite': invite})

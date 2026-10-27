@@ -261,6 +261,23 @@ class Handler(BaseHTTPRequestHandler):
             return self.create_invite()
         if self.path == '/api/logout':
             return self.send(200, b'{"signedOut":true}', cookie=self.session_cookie(clear=True))
+        if self.path == '/api/pikaqian-prices':
+            try:
+                data = self.read_auth_json()
+                result = self.server.pikaqian.prices(data.get('cardId'))
+            except (ValueError, AttributeError, UnicodeError):
+                return self.error(400, 'A valid saved card ID is required.')
+            except ProviderError as error:
+                messages = {'tier_required': (403, 'PikaQian pricing requires Hobby or above.'),
+                    'rate_limited': (429, 'PikaQian request limit reached. Try again later.'),
+                    'auth_required': (503, 'PikaQian rejected the saved API key. Contact the app owner.'),
+                    'not_configured': (503, 'PikaQian access is not configured.'),
+                    'circuit_open': (503, 'PikaQian requests paused after errors. Try again in five minutes.')}
+                status, message = messages.get(error.code, (502, 'PikaQian price lookup failed. No retry was made.'))
+                return self.send(status, json.dumps({'error': {'code': error.code, 'message': message}}).encode())
+            except Exception:
+                return self.send(502, b'{"error":{"code":"unavailable","message":"PikaQian price lookup failed. No retry was made."}}')
+            return self.send(200, json.dumps(result).encode())
         if self.path == '/api/enrich':
             try:
                 data = self.read_auth_json()

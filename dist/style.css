@@ -13,3 +13,5 @@ body:not([data-auth="signed-in"]) #collection-view,body:not([data-auth="signed-i
 .latest-find .catalog-source{pointer-events:auto;font-size:7px;margin-top:3px}
 
 .catalog-preview{display:block;width:150px;max-height:210px;object-fit:contain;margin:0 auto 12px;border-radius:8px}
+
+.bulk-pricing{border-bottom:1px solid var(--line);padding:10px 0 14px}.bulk-pricing>div{display:flex;gap:20px;flex-wrap:wrap}.bulk-pricing .fineprint{margin:8px 0 0}.bulk-pricing button:disabled{cursor:default}

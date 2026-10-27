@@ -110,6 +110,59 @@ class ProviderTests(unittest.TestCase):
             self.provider.enrich(READ)
         self.assertEqual(error.exception.code, 'rate_limited')
 
+    def test_direct_price_lookup_does_not_fetch_metadata_or_images(self):
+        result = self.provider.prices(CARD_ID)
+        self.assertEqual(result['prices'][0]['original_price_cents'], 1850)
+        self.assertEqual(result['pricingStatus'], 'available')
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(self.calls[0][0].endswith('/cards/' + CARD_ID + '/prices'))
+        self.assertEqual(result['observation']['operation'], 'price_lookup')
+        self.provider.prices(CARD_ID)
+        self.assertEqual(len(self.calls), 1)
+        with self.assertRaises(ValueError):
+            self.provider.prices('../cards')
+
+    def test_circuit_breaker_stops_network_after_three_failures(self):
+        self.price_status = 500
+        self.prices = {'error': {'code': 'server_error'}}
+        for _ in range(3):
+            with self.assertRaises(ProviderError):
+                self.provider.prices(CARD_ID)
+        self.assertEqual(len(self.calls), 3)
+        with self.assertRaises(ProviderError) as error:
+            self.provider.prices(CARD_ID)
+        self.assertEqual(error.exception.code, 'circuit_open')
+        self.assertEqual(len(self.calls), 3)
+
+    def test_plan_and_quota_denials_do_not_keep_spending(self):
+        for status, code in [(403, 'tier_required'), (429, 'rate_limited'), (401, 'auth_required')]:
+            self.setUp()
+            self.price_status = status
+            self.prices = {'error': {'code': code}}
+            for _ in range(2):
+                with self.assertRaises(ProviderError) as error:
+                    self.provider.prices(CARD_ID)
+                self.assertEqual(error.exception.code, code)
+            self.assertEqual(len(self.calls), 1)
+
+    def test_no_sales_is_cached_and_not_a_circuit_failure(self):
+        self.price_status = 404
+        self.prices = {'error': {'code': 'price_not_found'}}
+        for _ in range(4):
+            self.assertEqual(self.provider.prices(CARD_ID)['pricingStatus'], 'no_sales')
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.provider.failures, 0)
+        self.assertEqual(self.provider.blocked_until, 0)
+
+    def test_malformed_prices_open_circuit_instead_of_saying_no_sales(self):
+        self.prices = {'unexpected': 'schema'}
+        with self.assertRaises(ProviderError) as error:
+            self.provider.prices(CARD_ID)
+        self.assertEqual(error.exception.code, 'circuit_open')
+        with self.assertRaises(ProviderError):
+            self.provider.prices(CARD_ID)
+        self.assertEqual(len(self.calls), 1)
+
     def test_transport_refuses_redirects_and_bounds_response(self):
         from pikaqian import NoRedirect, MAX_BODY
         self.assertIsNone(NoRedirect().redirect_request(None, None, None, None, None, None))

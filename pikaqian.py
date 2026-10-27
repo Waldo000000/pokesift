@@ -103,6 +103,9 @@ class PikaQian:
         self.lock = threading.RLock()
         self.attempts = deque()
         self.pricing_disabled_until = 0
+        self.failures = 0
+        self.blocked_until = 0
+        self.blocked_code = 'circuit_open'
 
     def get(self, path):
         if not self.key:
@@ -112,7 +115,13 @@ class PikaQian:
             now = time.monotonic()
             cached = self.cache.get(path)
             if cached and now - cached[0] < 300:
+                if isinstance(cached[1], ProviderError):
+                    raise cached[1]
                 return cached[1]
+            if now < self.blocked_until:
+                raise ProviderError(self.blocked_code)
+            if path.endswith('/prices') and now < self.pricing_disabled_until:
+                raise ProviderError('tier_required')
             while self.attempts and now - self.attempts[0] >= 3600:
                 self.attempts.popleft()
             if len(self.attempts) >= 60:
@@ -120,14 +129,33 @@ class PikaQian:
             self.attempts.append(now)
             try:
                 status, body, mime = self.transport('https://api.pikaqian.com/v1/' + path, self.key)
-                data = json.loads(body)
+                data = {} if status in (401, 403, 429) else json.loads(body)
             except Exception:
+                self.record_failure(now)
                 raise ProviderError('unavailable') from None
             if status != 200:
                 code = data.get('error', {}).get('code') if isinstance(data, dict) else ''
-                raise ProviderError(code if code in ('tier_required', 'price_not_found', 'rate_limited') else 'unavailable')
-            if not isinstance(data, dict):
+                if code == 'price_not_found' and status == 404:
+                    self.failures = 0
+                    self.cache[path] = (now, ProviderError('price_not_found'))
+                    if len(self.cache) > 250:
+                        self.cache.pop(next(iter(self.cache)))
+                    raise ProviderError('price_not_found')
+                if status == 401:
+                    self.blocked_until, self.blocked_code = now + 300, 'auth_required'
+                    raise ProviderError('auth_required')
+                if status == 429 or code == 'rate_limited':
+                    self.blocked_until, self.blocked_code = now + 300, 'rate_limited'
+                    raise ProviderError('rate_limited')
+                if status == 403:
+                    self.pricing_disabled_until = now + 60
+                    raise ProviderError('tier_required')
+                self.record_failure(now)
                 raise ProviderError('unavailable')
+            if not isinstance(data, dict):
+                self.record_failure(now)
+                raise ProviderError('unavailable')
+            self.failures = 0
             def redact(v):
                 if isinstance(v, str): return v.replace(self.key, '[REDACTED]')
                 if isinstance(v, list): return [redact(x) for x in v]
@@ -138,6 +166,37 @@ class PikaQian:
                 self.cache.pop(next(iter(self.cache)))
             self.cache[path] = (now, data)
             return data
+
+    def record_failure(self, now):
+        self.failures += 1
+        if self.failures >= 3:
+            self.blocked_until, self.blocked_code = now + 300, 'circuit_open'
+
+    def prices(self, card_id):
+        if not isinstance(card_id, str) or not ID.fullmatch(card_id):
+            raise ValueError('Invalid card ID')
+        status = 'available'
+        try:
+            record = self.get('cards/' + card_id + '/prices')
+        except ProviderError as error:
+            if error.code != 'price_not_found':
+                raise
+            record, status = None, 'no_sales'
+        # Malformed responses count as errors, not as healthy missing prices.
+        if record is not None:
+            raw = record.get('grades', {}).get('raw') if isinstance(record.get('grades'), dict) else None
+            if not isinstance(raw, dict) or 'price_cents' not in raw or (raw['price_cents'] is not None and (type(raw['price_cents']) is not int or raw['price_cents'] < 0)):
+                with self.lock:
+                    self.cache.pop('cards/' + card_id + '/prices', None)
+                    self.blocked_until, self.blocked_code = time.monotonic() + 300, 'circuit_open'
+                raise ProviderError('circuit_open')
+        card = normalized_card({'id': card_id}, record, status, {})
+        checked = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        return {'provider': 'pikaqian', 'cardId': card_id, 'pricingStatus': card['pricing_status'],
+            'prices': card['prices'], 'checkedAt': checked,
+            'observation': {'provider': 'pikaqian', 'operation': 'price_lookup', 'receivedAt': checked,
+                'snapshotKind': 'provider_response', 'response': {'cardId': card_id, 'prices': record},
+                'pricingStatus': card['pricing_status']}}
 
     def enrich(self, read):
         read = clean_read(read)

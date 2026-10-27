@@ -262,6 +262,52 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   const chineseDownload=cp.waitForEvent('download');await cp.locator('#export').click();const chineseChunks=[];for await(const c of await (await chineseDownload).createReadStream())chineseChunks.push(c);
   const chineseBackup=JSON.parse(Buffer.concat(chineseChunks));assert.deepEqual(chineseBackup.entries[0].catalogMatch,chineseSaved.catalogMatch);
   await chinese.close();
+  // Bulk prices: one price-only lookup per printing, paced, no scans or image requests.
+  const bulkId=n=>'00000000-0000-0000-0000-'+String(n).padStart(12,'0');
+  const bulkEntry=(n,id=bulkId(n))=>({id:'bulk-'+n,status:'matched',thumbnail:scanImage,catalogMatch:{confirmedBy:'user',card:{provider:'pikaqian',provider_id:id,name:'Bulk card '+n,suggested_printing:'non-holo',prices:[]}}});
+  const bulkReply=(id,noSales=false)=>({cardId:id,pricingStatus:noSales?'no_sales':'available',prices:noSales?[]:[{market_price:5,original_price_cents:500,currency:'USD',source:'PikaQian'}],checkedAt:new Date().toISOString(),observation:{provider:'pikaqian',operation:'price_lookup',response:{cardId:id}}});
+  const setupBulk=async list=>{const c=await newContext(),p=await c.newPage();p.on('dialog',d=>d.accept());await p.goto(`http://127.0.0.1:${port}`);await p.locator('#backup-file').setInputFiles({name:'bulk.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({version:1,entries:list}))});await waitFor(()=>p.locator('.card-tile').count().then(n=>n===list.length));return [c,p];};
+  const [bulk,bp]=await setupBulk([bulkEntry(1),bulkEntry(2,bulkId(1)),bulkEntry(3),bulkEntry(4),{...saved[0],id:'unconfirmed-no-price',status:'unsupported'}]);
+  let bulkCalls=[],unexpectedBulk=0;
+  for(const route of ['**/api/identify','**/api/enrich','**/api/pikaqian-image?*'])await bp.route(route,r=>{unexpectedBulk++;return r.abort();});
+  await bp.route('**/api/pikaqian-prices',r=>{const id=r.request().postDataJSON().cardId;bulkCalls.push({id,time:Date.now()});return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(bulkReply(id,id===bulkId(3)))});});
+  await bp.locator('#update-missing-prices').click();
+  await bp.waitForFunction(()=>document.querySelector('#bulk-price-status').textContent.startsWith('Finished.'),{},{timeout:12000});
+  assert.equal(bulkCalls.length,3);assert(bulkCalls[1].time-bulkCalls[0].time>=1900);assert.equal(unexpectedBulk,0);
+  assert.match(await bp.locator('#bulk-price-status').textContent(),/3 cards priced/);
+  assert.match(await bp.locator('#bulk-price-status').textContent(),/1 with no recorded price/);
+  assert(await bp.locator('#update-missing-prices').isDisabled());
+  await bp.reload();assert(await bp.locator('#update-missing-prices').isDisabled());assert.equal(bulkCalls.length,3);
+  const bulkStored=await bp.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries,key);
+  assert.equal(bulkStored.find(e=>e.id==='bulk-2').catalogMatch.card.prices[0].original_price_cents,500);
+  assert.equal(bulkStored.find(e=>e.id==='bulk-3').priceCheck.status,'no_sales');
+  await bulk.close();
+  // An access denial stops immediately; transient errors stop after three, no retries.
+  for(const mode of ['plan','errors','cancel']) {
+    const [c,p]=await setupBulk([bulkEntry(11),bulkEntry(12),bulkEntry(13),bulkEntry(14)]);let calls=0,release;
+    await p.route('**/api/pikaqian-prices',async r=>{calls++;if(mode==='cancel')await new Promise(resolve=>release=resolve);return r.fulfill({status:mode==='plan'?403:mode==='errors'?502:200,contentType:'application/json',body:JSON.stringify(mode==='cancel'?bulkReply(r.request().postDataJSON().cardId):{error:{code:mode==='plan'?'tier_required':'unavailable',message:mode==='plan'?'Hobby plan required':'Temporary failure'}})});});
+    await p.locator('#update-missing-prices').click();await waitFor(()=>calls===1);
+    if(mode==='cancel'){await p.locator('#stop-price-update').click();release();}
+    // Three failures need two paced gaps; allow a little more time than waitFor's usual 5s.
+    await p.waitForFunction(()=>document.querySelector('#stop-price-update').hidden,{},{timeout:12000});
+    assert.equal(calls,mode==='errors'?3:1);
+    if(mode==='errors')assert.match(await p.locator('#bulk-price-status').textContent(),/repeated errors/);
+    if(mode==='plan')assert.match(await p.locator('#bulk-price-status').textContent(),/Hobby plan required/);
+    if(mode==='cancel')assert.match(await p.locator('#bulk-price-status').textContent(),/1 cards priced/);
+    await c.close();
+  }
+  // The batch limit is enforced even when a large collection is entirely missing prices.
+  const [capContext,capPage]=await setupBulk(Array.from({length:30},(_,i)=>bulkEntry(100+i)));
+  await capPage.clock.install();let capCalls=0;
+  await capPage.route('**/api/pikaqian-prices',r=>{capCalls++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(bulkReply(r.request().postDataJSON().cardId))});});
+  await capPage.locator('#update-missing-prices').click();
+  for(let n=1;n<=25;n++) {
+    await waitFor(()=>capPage.locator('#bulk-price-status').textContent().then(t=>t.includes(`${n} of 25 printings checked`)));
+    if(n<25)await capPage.clock.runFor(2000);
+  }
+  await capPage.clock.runFor(10000);
+  assert.equal(capCalls,25);assert.match(await capPage.locator('#update-missing-prices').textContent(),/\(5\)/);
+  await capContext.close();
   console.log('PASS: queued uploads, concurrency=2, out-of-order results, uninterrupted capture, browse during scans, details, persistence, filters, camera capture/release, interrupted reload, storage quota handling. Zero real scans.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exit(1)});

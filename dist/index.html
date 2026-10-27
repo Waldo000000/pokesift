@@ -34,6 +34,11 @@
       <div class="tabs" role="group" aria-label="Filter cards"><button class="tab active" data-filter="all" aria-pressed="true">All cards <span id="all-count">0</span></button><button class="tab" data-filter="review" aria-pressed="false">To review <span id="review-count">0</span></button></div>
       <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find a card…" aria-label="Search collection"></label>
     </section>
+    <section id="bulk-pricing" class="bulk-pricing" aria-label="Update missing prices" hidden>
+      <div><button id="update-missing-prices" class="text-button">Update missing prices</button><button id="stop-price-update" class="text-button" hidden>Stop update</button></div>
+      <p id="bulk-price-help" class="fineprint">Confirmed PikaQian cards only. Up to 25 printings per run, two seconds apart. No photo scans.</p>
+      <p id="bulk-price-status" class="fineprint" role="status" aria-live="polite"></p>
+    </section>
     <section id="empty" class="empty">
       <div class="empty-art" aria-hidden="true"><div class="art-card back"></div><div class="art-card front"><span>✦</span><i></i><b>YOUR NEXT FIND</b></div><span class="spark one">✧</span><span class="spark two">✦</span></div>
       <p class="eyebrow">FROM STACK TO COLLECTION</p><h2>Every card has a story.</h2><p>Start with a photo. We’ll find the card<br>and bring its details into focus.</p><button id="empty-add" class="primary">Scan your first card <span aria-hidden="true">↗</span></button><span class="empty-caption">Keep adding while we identify. No need to wait.</span>
