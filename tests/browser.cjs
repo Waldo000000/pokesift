@@ -87,6 +87,63 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.deepEqual(errors,[]);
   await context.close();
+  // Exercise camera-light controls with a real browser video track and mocked hardware capabilities.
+  const litContext=await newContext(),lit=await litContext.newPage();
+  lit.on('pageerror',e=>errors.push(e.message));
+  await lit.addInitScript(()=>{
+    const getMedia=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    window.flashFixture={mode:'supported',calls:[],tracks:[],reject:false,defer:false};
+    navigator.mediaDevices.getUserMedia=async constraints=>{
+      const media=await getMedia(constraints),track=media.getVideoTracks()[0];
+      const settings=track.getSettings.bind(track),stop=track.stop.bind(track);let on=false;
+      track.getCapabilities=()=>{if(flashFixture.mode==='throws')throw Error('Capabilities unavailable');return flashFixture.mode==='unsupported'?{}:{torch:flashFixture.mode==='array'?[false,true]:true};};
+      track.getSettings=()=>({...settings(),torch:on});
+      track.applyConstraints=async value=>{
+        flashFixture.calls.push(value);
+        if(flashFixture.defer)await new Promise(resolve=>flashFixture.release=resolve);
+        if(flashFixture.reject || track.readyState==='ended')throw Error('Light unavailable');
+        on=value.advanced[0].torch;
+      };
+      track.stop=()=>{on=false;stop();};flashFixture.tracks.push(track);return media;
+    };
+  });
+  let lightScans=0;
+  await lit.route('**/api/identify',r=>{lightScans++;return r.fulfill({json:fixture('Lit capture')});});
+  await lit.route('**/api/card-image?*',r=>r.fulfill({contentType:'image/png',body:photo.buffer}));
+  await lit.goto(`http://127.0.0.1:${port}`);await lit.locator('#open-camera').click();
+  assert(await lit.locator('#camera-light').isHidden());
+  await lit.locator('#enable-camera').click();await waitFor(()=>lit.locator('#shutter').isEnabled());
+  const flash=lit.locator('#toggle-flash');assert(await flash.isVisible());
+  assert.equal(await flash.getAttribute('aria-pressed'),'false');
+  await flash.click();await waitFor(()=>flash.isEnabled());
+  assert.equal(await flash.getAttribute('aria-pressed'),'true');
+  assert.equal(await lit.evaluate(()=>flashFixture.tracks[0].getSettings().torch),true);
+  await lit.locator('#crop-zoom-in').click();
+  await flash.click();await waitFor(()=>flash.isEnabled());
+  assert.equal(await lit.evaluate(()=>flashFixture.tracks[0].getSettings().torch),false);
+  assert.equal(lightScans,0,'Changing the flash must not submit a scan');
+  await flash.click();await waitFor(()=>flash.isEnabled());
+  await lit.locator('#shutter').click();await waitFor(()=>lightScans===1);await waitFor(()=>lit.locator('#activity').isHidden());
+  assert.equal(await flash.getAttribute('aria-pressed'),'true','Keep the light on for consecutive captures');
+  await lit.evaluate(()=>flashFixture.reject=true);await flash.click();await waitFor(()=>flash.isEnabled());
+  assert.equal(await flash.getAttribute('aria-pressed'),'true');assert.match(await lit.locator('#flash-status').textContent(),/Could not switch/);
+  await lit.evaluate(()=>{flashFixture.reject=false;flashFixture.defer=true;});await flash.click();
+  assert(await flash.isDisabled());assert(await lit.locator('#shutter').isDisabled());
+  await lit.locator('#close-camera').click();
+  assert.equal(await lit.evaluate(()=>flashFixture.tracks[0].readyState),'ended');
+  assert.equal(await lit.evaluate(()=>flashFixture.tracks[0].getSettings().torch),false);
+  await lit.evaluate(()=>flashFixture.defer=false);await lit.locator('#open-camera').click();await lit.locator('#enable-camera').click();
+  await waitFor(()=>lit.locator('#shutter').isEnabled());await lit.evaluate(()=>flashFixture.release());
+  await waitFor(()=>flash.isEnabled());assert.equal(await flash.getAttribute('aria-pressed'),'false');
+  assert.equal(await lit.locator('#flash-status').textContent(),'','An old toggle must not update a new camera session');
+  await lit.screenshot({path:'/tmp/pokesift-camera-flash-mobile.png'});
+  await lit.locator('#close-camera').click();
+  for(const mode of ['unsupported','throws','array']){
+    await lit.evaluate(mode=>flashFixture.mode=mode,mode);await lit.locator('#open-camera').click();await lit.locator('#enable-camera').click();
+    await waitFor(()=>lit.locator('#shutter').isEnabled());assert.equal(await flash.isVisible(),mode==='array');
+    await lit.locator('#close-camera').click();
+  }
+  assert.equal(lightScans,1);assert.deepEqual(errors,[]);await litContext.close();
   // The portrait preview and uploaded pixels must agree for landscape and portrait cameras.
   for(const [sourceWidth,sourceHeight,viewport] of [[640,360,{width:1280,height:900}],[360,640,{width:390,height:844}],[1280,720,{width:360,height:668}]]) {
     const cropped=await newContext(),p=await cropped.newPage();await p.setViewportSize(viewport);
@@ -434,6 +491,6 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await capPage.clock.runFor(10000);
   assert.equal(capCalls,25);assert.match(await capPage.locator('#update-missing-prices').textContent(),/\(5\)/);
   await capContext.close();
-  console.log('PASS: queued uploads, concurrency=2, out-of-order results, uninterrupted capture, browse during scans, details, persistence, filters, camera capture/release, interrupted reload, storage quota handling. Zero real scans.');
+  console.log('PASS: queued uploads, concurrency=2, out-of-order results, uninterrupted capture, browse during scans, details, persistence, filters, camera capture/release, flash capabilities/toggle/failure/session races, interrupted reload, storage quota handling. Zero real scans.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exit(1)});

@@ -17,6 +17,8 @@ Matched cards show a value directly in the collection and camera tray. Where mul
 
 Live camera captures use a portrait frame with the proportions of a Pokémon card (63:88), including on landscape laptop webcams. Only the area shown in that preview is uploaded. Keep all four card edges inside the guides and use **＋ / −** to adjust framing from 1× to 3× before capturing. This is a digital crop; moving the card closer still helps retain readable detail. Framing adjustments use no API requests. Imported photos retain their original framing.
 
+**Flash on/off** appears in the live preview when the active camera and browser expose camera-light control. It uses the continuous light (torch), so you can check reflections while framing and keep it on for successive photos. Closing the camera stops the track and turns its light off; reopening starts a fresh camera session. Cameras or browsers without this capability keep the usual capture controls.
+
 Camera uploads retain their source dimensions, crop rectangle and zoom in the collection and backups. The archived scan image is the exact cropped upload; the full surrounding webcam frame is not retained.
 
 ## Browsing your collection

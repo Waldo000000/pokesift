@@ -13,6 +13,7 @@ const jobs = [], sessionIds = new Set();
 let priceBatch = {running:false,message:''};
 let retakeId=null, retakePreparing=false, unsavedCollection=false;
 let cameraZoom=1;
+let flashTrack=null, flashOn=false, flashBusy=false, capturingPhoto=false;
 const CARD_ASPECT=63/88;
 let pendingRemovalId=null;
 
@@ -627,6 +628,45 @@ function renderCameraFraming() {
 $('crop-zoom-in').onclick=()=>{cameraZoom=Math.min(3,cameraZoom+.25);renderCameraFraming();};
 $('crop-zoom-out').onclick=()=>{cameraZoom=Math.max(1,cameraZoom-.25);renderCameraFraming();};
 new ResizeObserver(renderCameraFraming).observe($('camera-crop').parentElement);
+function renderCameraFlash() {
+  $('camera-light').hidden=!flashTrack;
+  const button=$('toggle-flash');
+  button.textContent=flashBusy?'Switching…':flashOn?'ϟ Flash on':'ϟ Flash off';
+  button.setAttribute('aria-pressed',String(flashOn));
+  button.disabled=flashBusy;
+  $('shutter').disabled=!stream?.getVideoTracks().some(track=>track.readyState==='live') || $('camera-video').readyState<2 || flashBusy || capturingPhoto;
+}
+function resetCameraFlash() {
+  flashTrack=null;flashOn=false;flashBusy=false;
+  $('flash-status').textContent='';renderCameraFlash();
+}
+function setupCameraFlash(track) {
+  resetCameraFlash();
+  try {
+    const torch=track?.getCapabilities?.().torch;
+    if((torch===true || (Array.isArray(torch)&&torch.includes(true))) && typeof track.applyConstraints==='function') {
+      flashTrack=track;flashOn=track.getSettings?.().torch===true;
+      track.addEventListener('ended',()=>{if(flashTrack===track)resetCameraFlash();},{once:true});
+    }
+  } catch { /* Some browsers expose capabilities but refuse to read them. */ }
+  renderCameraFlash();
+}
+$('toggle-flash').onclick=async()=>{
+  const track=flashTrack;if(!track || flashBusy || track.readyState!=='live')return;
+  const wanted=!flashOn;flashBusy=true;$('flash-status').textContent='';renderCameraFlash();
+  try {
+    await track.applyConstraints({advanced:[{torch:wanted}]});
+    if(track!==flashTrack)return;
+    const actual=track.getSettings?.().torch;
+    flashOn=typeof actual==='boolean'?actual:wanted;
+    if(flashOn!==wanted)$('flash-status').textContent='The camera could not switch its light. Try again.';
+  } catch {
+    if(track!==flashTrack)return;
+    $('flash-status').textContent='Could not switch the flash. Try again, or close the camera to turn its light off.';
+  } finally {
+    if(track===flashTrack){flashBusy=false;renderCameraFlash();}
+  }
+};
 async function enableCamera() {
   if (!navigator.mediaDevices?.getUserMedia) { $('camera-help').textContent = 'Live camera is unavailable in this browser. Choose photos from your library instead.'; return; }
   const generation = ++cameraGeneration;
@@ -636,8 +676,10 @@ async function enableCamera() {
     if (!$('camera-view').open || generation !== cameraGeneration) { next.getTracks().forEach(track => track.stop()); return; }
     if (stream) stream.getTracks().forEach(track => track.stop());
     stream = next; $('camera-video').srcObject = next; await $('camera-video').play();
+    if (!$('camera-view').open || generation !== cameraGeneration || stream!==next) { next.getTracks().forEach(track=>track.stop());return; }
     $('camera-crop').hidden=false;$('camera-framing').hidden=false;renderCameraFraming();
     $('camera-video').hidden = false; $('camera-placeholder').hidden = true; $('viewfinder').hidden = false; $('shutter').disabled = false;
+    setupCameraFlash(next.getVideoTracks()[0]);
   } catch {
     $('camera-help').textContent = 'Camera access wasn’t available. You can allow it in your browser settings, or choose photos below.';
   } finally { $('enable-camera').disabled = false; }
@@ -659,6 +701,7 @@ function stopCamera() {
   retakeId=null;renderRetakeMode();
   clearTimeout(latestTimer); $('latest-find').hidden = true;
   cameraGeneration++; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null;
+  resetCameraFlash();
   $('camera-video').srcObject = null; $('camera-video').hidden = true; $('viewfinder').hidden = true; $('camera-placeholder').hidden = false; $('shutter').disabled = true;
   $('camera-crop').hidden=true;$('camera-framing').hidden=true;
 }
@@ -670,8 +713,8 @@ $('camera-view').addEventListener('close',stopCamera);
 $('choose-photos').onclick = () => $('photo-input').click();
 $('photo-input').onchange = event => { addFiles([...event.target.files]); event.target.value = ''; };
 $('shutter').onclick = async() => {
-  const video = $('camera-video'); if (!stream || !video.videoWidth || video.readyState < 2) return;
-  $('shutter').disabled = true;
+  const video = $('camera-video'); if (!stream || !video.videoWidth || video.readyState < 2 || flashBusy || capturingPhoto) return;
+  capturingPhoto=true;$('shutter').disabled = true;
   try {
     const crop=cameraCrop(video.videoWidth,video.videoHeight);
     const capture={source:'camera',sourceWidth:video.videoWidth,sourceHeight:video.videoHeight,zoom:cameraZoom,crop};
@@ -681,7 +724,7 @@ $('shutter').onclick = async() => {
     if (blob) addFiles([new File([blob],'card.jpg',{type:'image/jpeg'})],capture);
     $('capture-flash').hidden = false; setTimeout(() => { $('capture-flash').hidden = true; },120);
   } catch(error) {notify(error.message || 'Could not capture this photo. Try again when the camera is ready.');
-  } finally { $('shutter').disabled = !stream; }
+  } finally { capturingPhoto=false;renderCameraFlash(); }
 };
 $('search').oninput = render;
 for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => {
