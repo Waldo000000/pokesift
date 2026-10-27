@@ -36,7 +36,9 @@
     const step=()=>host.clientWidth<500?105:145;
     function paint(){
       const mobile=host.clientWidth<500,selected=Math.max(0,Math.min(list.length-1,Math.round(position)));
-      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),scale=Math.max(.64,1-a*.09),opacity=Math.max(0,1-a*.23);b.style.transform=`translateX(calc(-50% + ${d*(mobile?48:82)}px)) translateY(${Math.min(a,5)*13}px) rotate(${d*7}deg) scale(${scale})`;b.style.opacity=a>3.6?'0':String(opacity);b.style.zIndex=String(100-Math.round(a*10));b.style.pointerEvents=a>3.6?'none':'auto';b.classList.toggle('selected',i===selected);b.tabIndex=i===selected?0:-1;b.setAttribute('aria-pressed',String(i===selected));b.querySelector('.fan-price').style.opacity=String(Math.max(0,1-a*2));});
+      const cardWidth=buttons[0]?.offsetWidth||180,spacing=mobile?30:43;
+      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),opening=Math.max(0,Math.min(1,d)),gap=cardWidth*.88,offset=d*spacing+opening*gap;
+        b.style.transform=`translateX(calc(-50% + ${offset}px)) translateY(${Math.min(a,6)*5}px) rotate(${Math.max(-5,Math.min(5,d))*3}deg)`;b.style.opacity='1';b.style.zIndex=String(i+1);b.style.visibility=a>6?'hidden':'visible';b.style.pointerEvents=a>6?'none':'auto';b.classList.toggle('selected',i===selected);b.tabIndex=i===selected?0:-1;b.setAttribute('aria-pressed',String(i===selected));b.querySelector('.fan-price').style.opacity=String(Math.max(0,1-a*2));});
       host.dataset.position=position.toFixed(3);
       if(selected!==lastLabel){lastLabel=selected;onChange(selected,list[selected]);}
     }
@@ -54,7 +56,7 @@
   }
 
   const aside=$('binder-layout').querySelector('.binder-aside');
-  aside.innerHTML='<p class="eyebrow">MAKE A LITTLE ROOM</p><h3>Your stacks</h3><div class="stack-spots"><section><h4>Stack one <span id="pile-count-0"></span></h4><div id="card-pile" class="card-pile" data-pile-drop="0" role="region" aria-label="Stack one"></div></section><section><h4>Stack two <span id="pile-count-1"></span></h4><div id="card-pile-1" class="card-pile" data-pile-drop="1" role="region" aria-label="Stack two"></div></section></div><p class="pile-instructions">Pull up to remove. Align above an empty sleeve, then slide down to insert.</p><p id="physical-count" class="physical-count" role="status"></p>';
+  aside.innerHTML='<p class="eyebrow">MAKE A LITTLE ROOM</p><h3>Your stacks</h3><div class="stack-spots"><section><h4>Stack one <span id="pile-count-0"></span></h4><div id="card-pile" class="card-pile" data-pile-drop="0" role="region" aria-label="Stack one"></div></section><section><h4>Stack two <span id="pile-count-1"></span></h4><div id="card-pile-1" class="card-pile" data-pile-drop="1" role="region" aria-label="Stack two"></div></section></div><p class="pile-instructions">Pull up to remove. Drop into any empty sleeve or onto either stack.</p><p id="physical-count" class="physical-count" role="status"></p>';
   const table=$('binder-layout'),book=table.querySelector('.binder-book');
   table.classList.add('physical-table');
   book.querySelector('#pocket-grid').replaceWith(Object.assign(document.createElement('div'),{id:'binder-spread',className:'binder-spread'}));
@@ -83,23 +85,24 @@
   };
   $('fan-prev').onclick=()=>mainFan?.step(-1);$('fan-next').onclick=()=>mainFan?.step(1);
 
-  // A ribbon of connected strips bends across the page, then lands exactly on
-  // the opposite leaf (including the spine gap). Both faces retain their layout.
+  // Three rigid panels hinge at the pocket gutters. Cards stay flat while the
+  // plastic between their columns folds; the final pose matches the resting leaf.
   function startTurn(direction,corner='bottom') {
     if(turn||drag)return false;const target=page+direction*pageStep();if(target<0||target>=layout.slots.length/9)return false;
     const spread=$('binder-spread'),source=direction===1?spread.lastElementChild:spread.firstElementChild,rect=source.getBoundingClientRect(),bounds=book.getBoundingClientRect(),gap=spreadMedia.matches?parseFloat(getComputedStyle(spread).gap):0;
     const sheet=document.createElement('div');sheet.className='turning-sheet curved-sheet';sheet.setAttribute('aria-hidden','true');sheet.inert=true;Object.assign(sheet.style,{left:rect.left-bounds.left+'px',top:rect.top-bounds.top+'px',width:rect.width+'px',height:rect.height+'px'});
     const front=source.cloneNode(true),back=leaf(direction===1?target:target+pageStep()-1,{side:direction===1?'left':'right',corners:false});
     for(const face of [front,back]){face.querySelectorAll('button').forEach(b=>b.tabIndex=-1);face.querySelectorAll('.page-corner').forEach(b=>b.remove());Object.assign(face.style,{width:rect.width+'px',height:rect.height+'px'});}
-    const strips=[],segments=36,w=rect.width/segments;
-    for(let i=0;i<segments;i++){const strip=document.createElement('div');strip.className='page-strip';Object.assign(strip.style,{width:w+.35+'px',height:rect.height+'px',transformOrigin:direction===1?'left center':'right center'});const start=direction===1?i*w:rect.width-(i+1)*w;
+    const pockets=[...source.querySelectorAll('.physical-pocket')].slice(0,3).map(n=>n.getBoundingClientRect());
+    const cuts=[0,(pockets[0].right+pockets[1].left)/2-rect.left,(pockets[1].right+pockets[2].left)/2-rect.left,rect.width],strips=[];
+    for(let i=0;i<3;i++){const column=direction===1?i:2-i,start=cuts[column],w=cuts[column+1]-start,strip=document.createElement('div');strip.className='page-strip';strip.dataset.column=column;strip.foldWidth=w;Object.assign(strip.style,{width:w+.25+'px',height:rect.height+'px',transformOrigin:direction===1?'left center':'right center'});
       for(const [face,reverse] of [[front,false],[back,true]]){const mask=document.createElement('div');mask.className='strip-face'+(reverse?' strip-back':'');const content=face.cloneNode(true);content.style.left=-(reverse?rect.width-start-w:start)+'px';mask.append(content);strip.append(mask);}sheet.append(strip);strips.push(strip);
     }
     if(spreadMedia.matches){if(direction===1)spread.lastElementChild.replaceWith(leaf(target+1,{side:'right',corners:false}));else spread.firstElementChild.replaceWith(leaf(target,{side:'left',corners:false}));}else spread.replaceChildren(leaf(target,{corners:false}));
     book.append(sheet);book.classList.add('page-turning');turn={direction,corner,target,sheet,strips,gap,width:rect.width,progress:0,frame:0};paintTurn(0);return true;
   }
-  function paintTurn(progress){if(!turn)return;const t=turn;t.progress=progress;const wave=Math.sin(progress*Math.PI),w=t.width/t.strips.length;let x=t.direction===1?0:t.width,z=0;
-    t.strips.forEach((strip,i)=>{const fraction=(i+.5)/t.strips.length,angle=Math.PI*progress+wave*.7*(fraction-.5)*2,dy=0,left=t.direction===1?x:x-w;
+  function paintTurn(progress){if(!turn)return;const t=turn;t.progress=progress;const wave=Math.sin(progress*Math.PI);let x=t.direction===1?0:t.width,z=0;
+    t.strips.forEach((strip,i)=>{const w=strip.foldWidth,angle=Math.PI*progress+wave*.6*(i-1),dy=0,left=t.direction===1?x:x-w;
       strip.style.left=left+'px';strip.style.transform=`translate3d(${-t.direction*t.gap*progress}px,${dy}px,${z}px) rotateY(${-t.direction*angle*180/Math.PI}deg)`;strip.style.setProperty('--strip-shade',Math.abs(Math.sin(angle))*.22);x+=t.direction*Math.cos(angle)*w;z+=Math.sin(angle)*w;
     });book.dataset.turnProgress=progress.toFixed(3);
   }
@@ -115,31 +118,21 @@
   function returnCard(current){const ghost=current.ghost;if(!ghost){current.source.classList.remove('lifted-out');return;}const rect=current.source.getBoundingClientRect(),from=ghost.getBoundingClientRect();if(reduced()){ghost.remove();current.source.classList.remove('lifted-out');return;}ghost.style.transition='left .2s ease, top .2s ease, transform .2s ease';Object.assign(ghost.style,{left:rect.left+'px',top:rect.top+'px',transform:'none'});setTimeout(()=>{ghost.remove();current.source.classList.remove('lifted-out');},220);}
   function dropInto(c,from,slot=null,stack=0){if(!place(c.key,slot,stack))return false;const node=document.querySelector('[data-card-key="'+CSS.escape(c.key)+'"]');if(node&&from&&!reduced()){const to=node.getBoundingClientRect();node.animate([{translate:`${from.left+from.width/2-to.left-to.width/2}px ${from.top+from.height/2-to.top-to.height/2}px`,scale:String(from.width/to.width)},{translate:'0px 0px',scale:'1'}],{duration:280,easing:'cubic-bezier(.16,1,.3,1)'});}return true;}
   function clearDrag({keepGhost=false}={}){if(!drag)return;cancelAnimationFrame(drag.scrollFrame);if(!keepGhost){drag.source.classList.remove('lifted-out');drag.ghost?.remove();}drag.glass?.remove();document.querySelectorAll('.drop-ready,.drop-blocked').forEach(n=>n.classList.remove('drop-ready','drop-blocked'));document.body.classList.remove('holding-card');drag=null;}
-  function guideInsertion(d,e){
-    let entry=d.entry;
-    if(entry&&(Math.abs(e.clientX-entry.rect.left-entry.rect.width/2)>entry.rect.width*.8||e.clientY<entry.y-entry.rect.height*.35)){d.entry=null;entry=null;d.glass?.remove();d.glass=null;}
-    if(!entry){const bottom=e.clientY-d.grabY+d.rect.height;const candidates=[...document.querySelectorAll('#binder-spread [data-slot]')].filter(n=>!layout.slots[Number(n.dataset.slot)]).map(node=>{const r=node.getBoundingClientRect(),style=getComputedStyle(node),left=r.left+parseFloat(style.paddingLeft)+1,top=r.top+parseFloat(style.paddingTop)+1,width=r.width-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-2,height=r.height-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom)-2;return {node,rect:{left,top,width,height}};}).filter(({rect:r})=>Math.abs(e.clientX-r.left-r.width/2)<r.width*.42&&bottom<=r.top+5&&bottom>=r.top-r.height*.7).sort((a,b)=>Math.abs(a.rect.top-bottom)-Math.abs(b.rect.top-bottom));
-      if(candidates.length){const {node,rect}=candidates[0];entry=d.entry={slot:Number(node.dataset.slot),rect,y:e.clientY+rect.top-bottom,progress:0};}
-    }
-    if(!entry)return false;
-    const r=entry.rect,depth=Math.max(-r.height*.7,Math.min(r.height,e.clientY-entry.y));entry.progress=Math.max(0,depth/r.height);d.ghost.dataset.insertion=String(entry.slot);Object.assign(d.ghost.style,{left:r.left+'px',top:r.top-r.height+depth+'px',width:r.width+'px',height:r.height+'px',transform:'none'});
-    if(!d.glass){d.glass=document.createElement('div');d.glass.className='extraction-glass';document.body.append(d.glass);}Object.assign(d.glass.style,{left:r.left-3+'px',top:r.top+'px',width:r.width+6+'px',height:r.height+'px'});document.querySelector(`#binder-spread [data-slot="${entry.slot}"]`)?.classList.add('drop-ready');return true;
-  }
   function updateExtraction(e){if(!drag)return;const d=drag,dx=e.clientX-d.x,dy=e.clientY-d.y;
     if(!d.moved&&Math.hypot(dx,dy)<5)return;
     if(!d.moved){d.moved=true;d.source.classList.add('lifted-out');document.body.classList.add('holding-card');const ghost=document.createElement('img');ghost.className='held-card';ghost.src=d.source.querySelector('img').src;ghost.alt='';Object.assign(ghost.style,{left:d.rect.left+'px',top:d.rect.top+'px',width:d.rect.width+'px',height:d.rect.height+'px'});document.body.append(ghost);d.ghost=ghost;if(d.inSleeve){const glass=document.createElement('div');glass.className='extraction-glass';document.body.append(glass);d.glass=glass;}}
     if(d.inSleeve&&!d.extracted){const origin=d.source.getBoundingClientRect(),up=Math.max(0,origin.top+d.grabY-e.clientY);Object.assign(d.ghost.style,{left:origin.left+'px',top:(origin.top-up)+'px',transform:'none'});Object.assign(d.glass.style,{left:origin.left-4+'px',top:origin.top+7+'px',width:origin.width+8+'px',height:origin.height-3+'px'});if(up>=origin.height+8){d.extracted=true;d.grabX=e.clientX-origin.left;d.grabY=e.clientY-(origin.top-up);d.ghost.dataset.free='true';}}
     else {Object.assign(d.ghost.style,{left:(e.clientX-d.grabX)+'px',top:(e.clientY-d.grabY)+'px',transform:`rotate(${Math.max(-5,Math.min(5,dx*.015))}deg) scale(1.025)`});d.ghost.dataset.free='true';}
     document.querySelectorAll('.drop-ready,.drop-blocked').forEach(n=>n.classList.remove('drop-ready','drop-blocked'));
-    if(d.extracted){if(guideInsertion(d,e))return;delete d.ghost.dataset.insertion;if(d.glass){d.glass.remove();d.glass=null;}Object.assign(d.ghost.style,{width:d.rect.width+'px',height:d.rect.height+'px'});const hit=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot],[data-pile-drop]');if(hit){const blocked=hit.hasAttribute('data-slot');hit.classList.add(blocked?'drop-blocked':'drop-ready');}}
+    if(d.extracted){if(d.glass){d.glass.remove();d.glass=null;}Object.assign(d.ghost.style,{width:d.rect.width+'px',height:d.rect.height+'px'});const hit=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot],[data-pile-drop]');if(hit){const blocked=hit.hasAttribute('data-slot')&&layout.slots[Number(hit.dataset.slot)];hit.classList.add(blocked?'drop-blocked':'drop-ready');}}
   }
   table.addEventListener('pointerdown',e=>{const source=e.target.closest('[data-card-key]');if(!source||source.disabled||e.button!==0||turn||drag)return;const rect=source.getBoundingClientRect(),inSleeve=!!source.closest('.physical-pocket');drag={id:e.pointerId,key:source.dataset.cardKey,source,rect,x:e.clientX,y:e.clientY,grabX:e.clientX-rect.left,grabY:e.clientY-rect.top,moved:false,inSleeve,extracted:!inSleeve,last:{clientX:e.clientX,clientY:e.clientY}};table.setPointerCapture(e.pointerId);
     function scroll(){if(!drag)return;if(drag.moved&&drag.inSleeve&&!drag.extracted&&drag.last.clientY<55&&window.scrollY>0){window.scrollBy(0,-8);updateExtraction(drag.last);}drag.scrollFrame=requestAnimationFrame(scroll);}drag.scrollFrame=requestAnimationFrame(scroll);
   });
   table.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;drag.last={clientX:e.clientX,clientY:e.clientY};updateExtraction(e);});
-  table.addEventListener('pointerup',e=>{if(!drag||e.pointerId!==drag.id)return;const current=drag,c=cards.find(c=>c.key===current.key),hit=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot],[data-pile-drop]'),from=current.ghost?.getBoundingClientRect();const inserted=current.entry&&current.entry.progress>=.35;const blocked=current.moved&&(!current.extracted||(!inserted&&(current.entry||hit?.hasAttribute('data-slot'))));clearDrag({keepGhost:blocked});if(table.hasPointerCapture(e.pointerId))table.releasePointerCapture(e.pointerId);if(!c)return;
-    if(blocked){returnCard(current);if(current.extracted)note(hit?.hasAttribute('data-slot')&&layout.slots[Number(hit.dataset.slot)]?'That sleeve is occupied. Use the stacks to make room.':'Start above the sleeve opening, then slide the card down.');}
-    else if(inserted)dropInto(c,from,current.entry.slot);
+  table.addEventListener('pointerup',e=>{if(!drag||e.pointerId!==drag.id)return;const current=drag,c=cards.find(c=>c.key===current.key),hit=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot],[data-pile-drop]'),from=current.ghost?.getBoundingClientRect();const blocked=current.moved&&(!current.extracted||(hit?.hasAttribute('data-slot')&&layout.slots[Number(hit.dataset.slot)]));clearDrag({keepGhost:blocked});if(table.hasPointerCapture(e.pointerId))table.releasePointerCapture(e.pointerId);if(!c)return;
+    if(blocked){returnCard(current);if(current.extracted)note('That sleeve is occupied. Use the stacks to make room.');}
+    else if(current.moved&&hit?.hasAttribute('data-slot'))dropInto(c,from,Number(hit.dataset.slot));
     else if(current.moved&&hit?.hasAttribute('data-pile-drop'))dropInto(c,from,null,Number(hit.dataset.pileDrop));
 
     else {cardDetail(c,{from,holding:current.moved});if(current.moved)current.source.classList.add('lifted-out');}e.preventDefault();
@@ -169,9 +162,29 @@
   document.addEventListener('pointerdown',e=>{if(floatFan&&!e.target.closest('#pokemon-float,.habitat-pokemon'))closeFloat();});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&floatFan){closeFloat(true);e.preventDefault();}});window.addEventListener('resize',()=>closeFloat());
   $('detail').addEventListener('close',()=>{detailFan?.destroy();detailFan=null;if(theme==='binder')renderCards();});
 
+  // Cache the artwork alpha once, then resolve the visible pixel from front to
+  // back. Keyboard focus remains on the original, accessibly named buttons.
+  const alphaMaps=new Map();
+  function prepareHitMask(node){const image=node.querySelector('img'),key=node.dataset.pokemon;
+    function prepare(){let mask=alphaMaps.get(key);if(!mask){const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0);mask={width:canvas.width,height:canvas.height,data:ctx.getImageData(0,0,canvas.width,canvas.height).data};alphaMaps.set(key,mask);}node.dataset.hitReady='true';
+      node.zooHit=(x,y)=>{const r=image.getBoundingClientRect(),scale=Math.min(r.width/mask.width,r.height/mask.height),w=mask.width*scale,h=mask.height*scale,px=Math.floor((x-r.left-(r.width-w)/2)/scale),py=Math.floor((y-r.top-(r.height-h)/2)/scale);return px>=0&&py>=0&&px<mask.width&&py<mask.height&&mask.data[(py*mask.width+px)*4+3]>=24;};
+    }
+    if(image.complete&&image.naturalWidth)prepare();else image.addEventListener('load',prepare,{once:true});
+  }
+  function bindScenePointers(scene){let active=null,hover=null;
+    const hit=e=>[...scene.children].reverse().sort((a,b)=>Number(b.style.zIndex)-Number(a.style.zIndex)).find(n=>n.zooHit?.(e.clientX,e.clientY));
+    function highlight(node){if(hover===node)return;hover?.classList.remove('art-hovered');hover=node;hover?.classList.add('art-hovered');scene.style.cursor=node?'grab':'';}
+    scene.onpointerdown=e=>{if(e.button!==0||active)return;const node=hit(e);if(!node)return;active=node;highlight(null);node.zooStart(e);};
+    scene.onpointermove=e=>{if(active)active.zooDrag(e);else if(e.pointerType!=='touch')highlight(hit(e));};
+    scene.onpointerleave=()=>{if(!active)highlight(null);};
+    scene.onpointerup=e=>{const node=active;active=null;node?.zooFinish(e);if(e.pointerType!=='touch')highlight(hit(e));};
+    scene.onpointercancel=scene.onlostpointercapture=e=>{const node=active;active=null;node?.zooFinish(e,true);highlight(null);};
+    scene.cancelGesture=()=>{active?.zooCancel();active=null;highlight(null);};
+  }
+
   const families=[[1,2],[4,5,6],[7,9],[25,26],[94,93],[129],[133],[143],[149],[151]];
   let habitatList=[];
-  renderHabitat=function(list){const scene=$('habitat-creatures');if(!scene)return;habitatList=list;closeFloat();scene.replaceChildren();const world=scene.parentElement,width=world.clientWidth||800,columns=width<500?3:width<850?4:6,cell=width/columns,rowHeight=cell*1.04,groups=families.map(f=>f.map(id=>list.find(p=>p.id===id)).filter(Boolean)).filter(f=>f.length),rows=[];
+  renderHabitat=function(list){const scene=$('habitat-creatures');if(!scene)return;habitatList=list;closeFloat();scene.cancelGesture?.();scene.replaceChildren();const world=scene.parentElement,width=world.clientWidth||800,columns=width<500?3:width<850?4:6,cell=width/columns,rowHeight=cell*1.04,groups=families.map(f=>f.map(id=>list.find(p=>p.id===id)).filter(Boolean)).filter(f=>f.length),rows=[];
     for(const p of list)if(!families.flat().includes(p.id))groups.push([p]);while(groups.length){const row=[];for(let i=0;i<groups.length;){if(row.length+groups[i].length<=columns)row.push(...groups.splice(i,1)[0]);else i++;}rows.push(row);}const height=Math.max(300,rows.length*rowHeight+cell*.28+35);world.style.height=height+'px';
     rows.forEach((row,r)=>row.forEach((p,col)=>{const size=cell*([6,9,143,149].includes(p.id)?.92:.84),defaultPoint=[((columns-row.length)/2+col+.5)/columns*100,(cell*.14+(r+.5)*rowHeight)/height*100];let point=layout.positions[p.id];if(!Array.isArray(point)||point.length!==2||!point.every(n=>Number.isFinite(n)&&n>=0&&n<=100))point=defaultPoint;
       const b=document.createElement('button');b.className='habitat-pokemon';b.dataset.pokemon=p.id;b.setAttribute('aria-label',p.name+', '+count(p.id)+' cards. Drag to move; tap to browse cards.');b.style.setProperty('--creature-size',size+'px');b.style.left=point[0]+'%';b.style.top=point[1]+'%';b.style.zIndex=Math.round(point[1]);b.innerHTML=`<img src="${art['pokemon-'+p.id]}" alt="${p.name}" draggable="false">`;
@@ -179,12 +192,12 @@
       b.zooPoint=()=>point;b.zooMove=next=>{point=next;move();b.style.zIndex=Math.round(point[1]);};
       function nudge(){const bounds=scene.getBoundingClientRect();for(let pass=0;pass<3;pass++)for(const other of scene.children){if(other===b)continue;const op=other.zooPoint(),dx=(op[0]-point[0])*bounds.width/100,dy=(op[1]-point[1])*bounds.height/100,distance=Math.hypot(dx,dy),radius=(size+other.offsetWidth)*.28;if(distance>=radius)continue;const ux=distance?dx/distance:1,uy=distance?dy/distance:.2,push=(radius-distance)*.48,mx=other.offsetWidth*.5/bounds.width*100,my=other.offsetHeight*.5/bounds.height*100,next=[Math.max(mx,Math.min(100-mx,op[0]+ux*push/bounds.width*100)),Math.max(my,Math.min(100-my,op[1]+uy*push/bounds.height*100))];other.zooMove(next);layout.positions[other.dataset.pokemon]=next;}}
 
-      b.addEventListener('pointerdown',e=>{if(e.button!==0)return;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,point:[...point],snapshot:[...scene.children].map(n=>[n,[...n.zooPoint()]]),positions:JSON.parse(JSON.stringify(layout.positions)),rect:scene.getBoundingClientRect(),moved:false};b.setPointerCapture(e.pointerId);});
-      b.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,dy=e.clientY-gesture.y;if(!gesture.moved&&Math.hypot(dx,dy)<5)return;if(!gesture.moved)closeFloat();gesture.moved=true;b.classList.add('being-moved');const mx=size*.5/gesture.rect.width*100,my=size*.5/gesture.rect.height*100;point=[Math.max(mx,Math.min(100-mx,gesture.point[0]+dx/gesture.rect.width*100)),Math.max(my,Math.min(100-my,gesture.point[1]+dy/gesture.rect.height*100))];move();nudge();b.style.zIndex='100';});
-      function finish(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;b.classList.remove('being-moved');if(b.hasPointerCapture(e.pointerId))b.releasePointerCapture(e.pointerId);if(cancelled){for(const [node,previous] of g.snapshot)node.zooMove(previous);layout.positions=g.positions;point=g.point;move();}else if(g.moved){layout.positions[p.id]=point;persist();}else speciesDetail(p);b.style.zIndex=Math.round(point[1]);e.preventDefault();}
-      b.addEventListener('pointerup',e=>finish(e));b.addEventListener('pointercancel',e=>finish(e,true));b.addEventListener('lostpointercapture',e=>{if(gesture)finish(e,true);});b.onclick=e=>{if(e.detail===0)speciesDetail(p);};
-      b.addEventListener('keydown',e=>{if(!e.shiftKey||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();point=[Math.max(7,Math.min(93,point[0]+(e.key==='ArrowRight'?2:e.key==='ArrowLeft'?-2:0))),Math.max(9,Math.min(91,point[1]+(e.key==='ArrowDown'?2:e.key==='ArrowUp'?-2:0)))];layout.positions[p.id]=point;persist();move();});scene.append(b);
-    }));};
+      b.zooStart=e=>{if(e.button!==0)return;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,point:[...point],snapshot:[...scene.children].map(n=>[n,[...n.zooPoint()]]),positions:JSON.parse(JSON.stringify(layout.positions)),rect:scene.getBoundingClientRect(),moved:false};scene.setPointerCapture(e.pointerId);};
+      b.zooDrag=e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,dy=e.clientY-gesture.y;if(!gesture.moved&&Math.hypot(dx,dy)<5)return;if(!gesture.moved)closeFloat();gesture.moved=true;b.classList.add('being-moved');const mx=size*.5/gesture.rect.width*100,my=size*.5/gesture.rect.height*100;point=[Math.max(mx,Math.min(100-mx,gesture.point[0]+dx/gesture.rect.width*100)),Math.max(my,Math.min(100-my,gesture.point[1]+dy/gesture.rect.height*100))];move();nudge();b.style.zIndex='100';};
+      function finish(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;b.classList.remove('being-moved');if(scene.hasPointerCapture(e.pointerId))scene.releasePointerCapture(e.pointerId);if(cancelled){for(const [node,previous] of g.snapshot)node.zooMove(previous);layout.positions=g.positions;point=g.point;move();}else if(g.moved){layout.positions[p.id]=point;persist();}else speciesDetail(p);b.style.zIndex=Math.round(point[1]);e.preventDefault();}
+      b.zooFinish=finish;b.zooCancel=()=>{if(gesture)finish({pointerId:gesture.id,preventDefault(){}},true);};b.onclick=e=>{if(e.detail===0)speciesDetail(p);};
+      b.addEventListener('keydown',e=>{if(!e.shiftKey||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();point=[Math.max(7,Math.min(93,point[0]+(e.key==='ArrowRight'?2:e.key==='ArrowLeft'?-2:0))),Math.max(9,Math.min(91,point[1]+(e.key==='ArrowDown'?2:e.key==='ArrowUp'?-2:0)))];layout.positions[p.id]=point;persist();move();});scene.append(b);prepareHitMask(b);
+    }));bindScenePointers(scene);};
   const arrange=document.createElement('button');arrange.className='arrange-pokemon';arrange.textContent='Arrange Pokémon';arrange.onclick=()=>{layout.positions={};persist();renderHabitat(habitatList);};$('habitat-scroll')?.before(arrange);if(!$('habitat-scroll'))document.querySelector('.habitat-scroll')?.before(arrange);
   const share=document.createElement('button');share.id='share-zoo';share.className='share-zoo';share.textContent='Share picture ↗';arrange.before(share);
   share.onclick=async()=>{if(share.disabled)return;share.disabled=true;share.textContent='Making your picture…';try{const scene=$('habitat-creatures'),rect=scene.getBoundingClientRect(),scale=Math.min(3,1600/rect.width),canvas=document.createElement('canvas'),footer=65;canvas.width=Math.round(rect.width*scale);canvas.height=Math.round((rect.height+footer)*scale);const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.fillStyle='#f0f2ec';ctx.fillRect(0,0,rect.width,rect.height+footer);for(const node of [...scene.children].sort((a,b)=>Number(a.style.zIndex)-Number(b.style.zIndex))){const image=node.querySelector('img');await image.decode();const point=node.zooPoint(),w=node.offsetWidth;ctx.drawImage(image,point[0]*rect.width/100-w/2,point[1]*rect.height/100-w/2,w,w);}ctx.fillStyle='#264c3b';ctx.font='bold 18px Georgia';ctx.fillText('My Pokémon Zoo',20,rect.height+28);ctx.font='11px sans-serif';ctx.fillStyle='#778c76';ctx.fillText(owned().length+' Pokémon · PokéSift',20,rect.height+47);const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('Image unavailable')),'image/png')),file=new File([blob],'my-pokemon-zoo.png',{type:'image/png'});if(navigator.canShare?.({files:[file]})){try{await navigator.share({files:[file],title:'My Pokémon Zoo'});}catch(error){if(error.name==='AbortError')return;downloadZoo(blob);}}else downloadZoo(blob);}catch{note('Could not create the picture. Please try again.');}finally{share.disabled=false;share.textContent='Share picture ↗';}};
