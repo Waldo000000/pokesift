@@ -47,11 +47,21 @@ async function resetFan(){await p.locator('#sort').selectOption('value');for(let
 async function shortGesture(dx,{hold=0,pause=0}={}){await p.mouse.move(fan.x,fan.y);await p.mouse.down();if(hold)await p.waitForTimeout(hold);await p.mouse.move(fan.x+dx,fan.y,{steps:2});if(pause)await p.waitForTimeout(pause);await p.mouse.up();}
 await resetFan();
 for(const [dx,expected] of [[30,3],[-30,4]]){await startOpenTrace(p);await shortGesture(dx);await p.waitForTimeout(450);await checkOpenTrace(p);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),expected,'A short flick advances exactly one card');assert.equal(Number(await p.locator('#card-fan').getAttribute('data-reveal')),1,'Flicks finish their reveal within 450 ms');assert(await p.locator('#detail').isHidden());}
-await shortGesture(30,{hold:320});await p.waitForTimeout(450);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),4,'Holding before a short move must remain a drag');assert(Number(await p.locator('#card-fan').getAttribute('data-reveal'))<1,'A drag retains the gentler reveal timing');await p.waitForTimeout(800);
-await shortGesture(30,{pause:180});await p.waitForTimeout(1200);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),4,'Pausing before release must not trigger a flick');
+await shortGesture(30,{hold:500});await p.waitForTimeout(550);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),4,'Holding before a short move must remain a drag');assert.equal(Number(await p.locator('#card-fan').getAttribute('data-reveal')),1,'A drag now settles and reveals promptly');await p.waitForTimeout(800);
+await shortGesture(30,{pause:260});await p.waitForTimeout(1200);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),4,'Pausing before release must not trigger a flick');
 await shortGesture(30);await shortGesture(30);await p.waitForTimeout(450);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),2,'Repeated flicks advance from the previous destination, even before it settles');
 await resetFan();await p.mouse.move(fan.x,fan.y);await p.mouse.down();await p.mouse.move(fan.x+80,fan.y);await p.mouse.move(fan.x+30,fan.y);await p.mouse.up();await p.waitForTimeout(1200);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),4,'A reversal is a drag rather than a flick');
 await p.locator('#sort').selectOption('value');fan=await center(p.locator('#card-fan'));await shortGesture(30);await p.waitForTimeout(450);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),0,'Flicks stop at the deck boundary');
+
+// Slightly slower/smaller flicks and a brief release hesitation remain flicks.
+await resetFan();await startOpenTrace(p);await shortGesture(30,{pause:125});await p.waitForTimeout(350);await checkOpenTrace(p);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),3);
+await startOpenTrace(p);await shortGesture(-14);await p.waitForTimeout(350);await checkOpenTrace(p);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),4,'Small intentional flicks should not be lost');
+await startOpenTrace(p);await p.mouse.move(fan.x,fan.y);await p.mouse.down();for(let i=1;i<=10;i++){await p.mouse.move(fan.x+i*6,fan.y);await p.waitForTimeout(18);}await p.mouse.up();await p.waitForTimeout(350);await checkOpenTrace(p);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-position')),3,'A less hurried flick still advances one card');
+// Once held, dragging must reach the latest pointer target within a frame.
+await resetFan();await p.mouse.move(fan.x,fan.y);await p.mouse.down();await p.waitForTimeout(500);
+const dragStep=await p.locator('#card-fan').evaluate(n=>n.clientWidth<500?105:145);
+for(const dx of [45,90]){await p.mouse.move(fan.x+dx,fan.y);await p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));assert(Math.abs(Number(await p.locator('#card-fan').getAttribute('data-position'))-(4-dx/dragStep))<.002,'Held dragging must not trail behind pointer input');}
+await p.mouse.up();await p.waitForTimeout(500);assert.equal(Number(await p.locator('#card-fan').getAttribute('data-reveal')),1);
 
 // A steady drag must never send the previously selected card back the other way.
 for(const direction of [1,-1]){

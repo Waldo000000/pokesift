@@ -37,6 +37,7 @@
     host.classList.add('tactile-fan');host.replaceChildren();
     const buttons=list.map((c,i)=>{const b=document.createElement('button');b.className='fan-card';b.dataset.fanIndex=i;b.setAttribute('aria-label',c.name+', '+valueOfCard(c));b.innerHTML=`<img src="${escapeHTML(img(c))}" alt="${escapeHTML(c.name)} ${escapeHTML(c.edition)}" draggable="false" loading="lazy" decoding="async"><span class="fan-price">${valueOfCard(c)}</span>`;b.onclick=e=>{if(e.detail===0){if(Math.round(position)===i)onOpen(c);else go(i);}};host.append(b);return b;});
     const step=()=>host.clientWidth<500?105:145;
+    const flickGesture={maxMs:420,pauseMs:180,minPixels:12,minSpeed:.12,straightness:.75};
     function paint(){
       const mobile=host.clientWidth<500,selected=Math.max(0,Math.min(list.length-1,Math.round(position)));
       const cardWidth=buttons[0]?.offsetWidth||180,spacing=mobile?30:43,radius=mobile?900:1250;
@@ -52,7 +53,7 @@
       if(revealTarget===next&&revealFrame)return;
       revealTarget=next;cancelAnimationFrame(revealFrame);revealFrame=0;
       if(reduced()||reveal===next){reveal=next;paint();return;}
-      const from=reveal,started=performance.now(),duration=next===1?650:460;
+      const from=reveal,started=performance.now(),duration=next===1?240:200;
       function tick(now){const t=Math.min(1,Math.max(0,(now-started)/duration)),ease=t*t*(3-2*t);reveal=from+(next-from)*ease;paint();if(t<1)revealFrame=requestAnimationFrame(tick);else{revealFrame=0;if(next===0)maybeReveal();}}
       revealFrame=requestAnimationFrame(tick);
     }
@@ -69,28 +70,29 @@
         frame=requestAnimationFrame(stepFlick);return;
       }
       revealTo(0);
-      const from=position,started=performance.now(),duration=320;
+      const from=position,started=performance.now(),duration=160;
       if(Math.abs(target-from)<.001){position=target;paint();maybeReveal();return;}
       // Both dragging and single-card flicks use this bounded ease: no overshoot.
       function settle(now){const t=Math.min(1,Math.max(0,(now-started)/duration));position=from+(target-from)*(1-Math.pow(1-t,3));paint();if(t<1)frame=requestAnimationFrame(settle);else{position=target;frame=0;paint();maybeReveal();}}
       frame=requestAnimationFrame(settle);
     }
     function follow(){
-      if(frame)return;if(reduced()){position=target;paint();return;}
-      let previous=performance.now();
-      function tick(now){const dt=Math.max(0,Math.min(50,now-previous));previous=now;position+=(target-position)*(1-Math.exp(-dt/75));if(Math.abs(target-position)<.0005){position=target;frame=0;paint();return;}paint();frame=requestAnimationFrame(tick);}
-      frame=requestAnimationFrame(tick);
+      // Coalesce pointer events into one paint per frame, without a trailing
+      // smoothing animation: the card position always uses the latest input.
+      position=target;
+      if(reduced()){paint();return;}
+      if(!frame)frame=requestAnimationFrame(()=>{frame=0;paint();});
     }
     function beginDrag(){if(!gesture||!gesture.moved||gesture.dragging)return;clearTimeout(gestureTimer);gesture.dragging=true;revealTo(0);}
     host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length||gesture)return;const startIndex=Math.round(frame?target:position),now=performance.now();cancelAnimationFrame(frame);frame=0;cancelAnimationFrame(revealFrame);revealFrame=0;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,startIndex,started:now,lastMove:now,lastX:e.clientX,path:0,moved:false,dragging:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
     host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,delta=Math.abs(e.clientX-gesture.lastX);if(delta>.5){gesture.path+=delta;gesture.lastX=e.clientX;gesture.lastMove=performance.now();}if(Math.abs(dx)>4)gesture.moved=true;if(!gesture.moved)return;
-      if(!gesture.dragging){const remaining=260-(performance.now()-gesture.started);clearTimeout(gestureTimer);if(remaining<=0||Math.abs(dx)>step()*.85||Math.abs(dx)<gesture.path*.85)beginDrag();else gestureTimer=setTimeout(beginDrag,Math.min(100,remaining));}
+      if(!gesture.dragging){const remaining=flickGesture.maxMs-(performance.now()-gesture.started);clearTimeout(gestureTimer);if(remaining<=0||Math.abs(dx)>step()||Math.abs(dx)<gesture.path*flickGesture.straightness)beginDrag();else gestureTimer=setTimeout(beginDrag,Math.min(flickGesture.pauseMs,remaining));}
       const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;follow();},{signal});
     function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;clearTimeout(gestureTimer);gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){
         const now=performance.now(),dx=e.clientX-g.x,dy=e.clientY-g.y,distance=Math.abs(dx),duration=now-g.started;
         // A short, quick release steps one card. A hold, pause, reversal or long
         // sweep remains a drag, with no velocity impulse added to its motion.
-        const flick=!g.dragging&&duration<=260&&distance>=16&&distance<=step()*.85&&distance/Math.max(1,duration)>=.25&&now-g.lastMove<=100&&distance>=Math.abs(dy)*1.5&&distance>=g.path*.85;
+        const flick=!g.dragging&&duration<=flickGesture.maxMs&&distance>=flickGesture.minPixels&&distance<=step()&&distance/Math.max(1,duration)>=flickGesture.minSpeed&&now-g.lastMove<=flickGesture.pauseMs&&distance>=Math.abs(dy)*1.15&&distance>=g.path*flickGesture.straightness;
         go(flick?g.startIndex-Math.sign(dx):Math.round(target),{flick});
       }else if(g.card>=0){if(g.card===Math.round(position)){go(Math.round(position));onOpen(list[g.card]);}else go(g.card);}else go(Math.round(position));e.preventDefault();}
     host.addEventListener('pointerup',e=>release(e),{signal});host.addEventListener('pointercancel',e=>release(e,true),{signal});host.addEventListener('lostpointercapture',e=>{if(gesture)release(e,true);},{signal});
