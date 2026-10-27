@@ -16,8 +16,10 @@ body{color:var(--ink)}
 /* Curved page surfaces keep identical geometry at rest and at the landing. */
 .curved-sheet{transform:none;transform-style:preserve-3d}.page-strip{position:absolute;top:0;transform-style:preserve-3d;will-change:transform}.strip-face{position:absolute;inset:0;overflow:hidden;backface-visibility:hidden}.strip-back{transform:rotateY(180deg)}.curved-sheet .binder-leaf{position:absolute;inset:auto;top:0;flex:none;box-shadow:none;border-radius:0;backface-visibility:visible}.curved-sheet .binder-leaf:after{display:none}.strip-face:after{content:"";position:absolute;inset:0;pointer-events:none;background:#27311a;opacity:var(--strip-shade)}.curved-sheet .strip-back:after{background:#fff}.pokemon-float .fan-price{display:none}.pokemon-float .fan-card{top:40px}.habitat-pokemon img{transition:filter .15s ease}.habitat-pokemon:focus-visible img{transform:none}@media(hover:hover){.habitat-pokemon:hover:not(.being-moved) img{transform:none}}.habitat-pokemon.being-moved img{transform:scale(1.03)}.habitat-pokemon span{display:none!important}
 
-.pokemon-float .card-fan:focus-visible{outline:none}.pokemon-float .card-fan:focus-visible .fan-card.selected{outline:2px solid #7c936b;outline-offset:5px}
+.pokemon-float .card-fan:focus-visible{outline:none}.pokemon-float .fan-card,.pokemon-float .fan-card:focus-visible,.pokemon-float .card-fan:focus-visible .fan-card.selected{outline:none}.pokemon-float .fan-card.selected:after{box-shadow:none}
 /* The scene resolves artwork pixels; transparent button padding never captures. */
 #habitat-creatures{touch-action:none}.habitat-pokemon{pointer-events:none}.habitat-pokemon:hover:not(.being-moved) img{transform:none}.habitat-pokemon.art-hovered:not(.being-moved) img,.habitat-pokemon:focus-visible img{transform:none;filter:drop-shadow(0 0 4px #8aa97080) drop-shadow(0 7px 3px #415b3826)}.habitat-pokemon.being-moved img{transform:scale(1.03)}
 /* Keep keyboard focus visible on the artwork, without outlining its padding. */
 .habitat-pokemon:focus-visible{outline:none}.habitat-pokemon:focus-visible img{filter:drop-shadow(0 0 3px #6f9155) drop-shadow(0 5px 5px #6f915540)}
+
+.physical-pocket.vacant{touch-action:none;cursor:grab}.page-turning,.page-turning *{cursor:grabbing}
