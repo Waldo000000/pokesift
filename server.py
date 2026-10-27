@@ -1,5 +1,8 @@
 """PokéSift development service; public deployments require an HTTPS reverse proxy."""
 import base64
+import io
+from http.cookies import SimpleCookie, CookieError
+from auth import mint_token, verify_token, LIFETIMES
 import hashlib
 import hmac
 import time
@@ -96,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def send(self, status, body, mime='application/json', challenge=False):
+    def send(self, status, body, mime='application/json', cookie=None):
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(body)))
@@ -105,8 +108,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
         self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-        if challenge:
-            self.send_header('WWW-Authenticate', 'Basic realm="PokeSift", charset="UTF-8"')
+        if cookie:
+            self.send_header('Set-Cookie', cookie)
         if self.server.public_origin:
             self.send_header('Strict-Transport-Security', 'max-age=31536000')
         self.end_headers()
@@ -127,31 +130,88 @@ class Handler(BaseHTTPRequestHandler):
     def expected_origin(self):
         return self.server.public_origin or 'http://' + self.headers.get('Host', '')
 
-    def authorize(self):
+    def configured(self):
         key, password = self.server.api_key, self.server.app_password
         if not key or len(password) < 16 or key == password:
             self.error(503, 'App access has not been configured. Contact the app owner.')
             return False
-        try:
-            scheme, encoded = self.headers.get('Authorization', '').split(' ', 1)
-            if scheme.lower() != 'basic':
-                raise ValueError()
-            user, supplied = base64.b64decode(encoded, validate=True).decode('utf-8').split(':', 1)
-        except (ValueError, UnicodeError):
-            user, supplied = '', ''
-        password_ok = hmac.compare_digest(hashlib.sha256(supplied.encode()).digest(), hashlib.sha256(password.encode()).digest())
-        if not (password_ok and user == 'pokesift'):
-            self.send(401, b'{"error":{"message":"Sign in to PokeSift."}}', challenge=True)
-            return False
         return True
+
+    def cookie_name(self):
+        return '__Host-pokesift' if self.server.public_origin else 'pokesift'
+
+    def session_cookie(self, token='', clear=False):
+        secure = '; Secure' if self.server.public_origin else ''
+        return f'{self.cookie_name()}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={0 if clear else LIFETIMES["session"]}{secure}'
+
+    def authorize(self):
+        if not self.configured():
+            return False
+        try:
+            cookies = SimpleCookie(self.headers.get('Cookie', ''))
+            token = cookies[self.cookie_name()].value
+        except (KeyError, CookieError):
+            token = ''
+        claims = verify_token(token, self.server.app_password, 'session', self.expected_origin())
+        if not claims:
+            self.error(401, 'Pair this device using a fresh invite QR.')
+            return False
+        self.device_id = claims['id']
+        return True
+
+    def read_auth_json(self):
+        if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
+            raise ValueError()
+        length = int(self.headers.get('Content-Length', '0'))
+        if not 0 < length <= 4096:
+            raise ValueError()
+        return json.loads(self.rfile.read(length))
+
+    def pairing(self):
+        if not self.configured():
+            return
+        with self.server.auth_lock:
+            now = time.monotonic()
+            while self.server.auth_attempts and now - self.server.auth_attempts[0] > 60:
+                self.server.auth_attempts.popleft()
+            if len(self.server.auth_attempts) >= 30:
+                return self.error(429, 'Too many pairing attempts. Wait a minute and try again.')
+            self.server.auth_attempts.append(now)
+        try:
+            data = self.read_auth_json()
+            claims = verify_token(data.get('invite'), self.server.app_password, 'invite', self.expected_origin())
+        except (ValueError, AttributeError, UnicodeError):
+            claims = None
+        if not claims:
+            return self.error(401, 'This invite is invalid or expired. Ask for a fresh QR code.')
+        token = mint_token(self.server.app_password, 'session', self.expected_origin())
+        self.send(200, b'{"paired":true}', cookie=self.session_cookie(token))
+
+    def create_invite(self):
+        import qrcode
+        import qrcode.image.svg
+        token = mint_token(self.server.app_password, 'invite', self.expected_origin())
+        claims = verify_token(token, self.server.app_password, 'invite', self.expected_origin())
+        url = self.expected_origin() + '/#invite=' + token
+        image = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, box_size=6, border=4)
+        output = io.BytesIO()
+        image.save(output)
+        self.send(200, json.dumps({'url': url, 'expiresAt': claims['exp'],
+            'qr': 'data:image/svg+xml;base64,' + base64.b64encode(output.getvalue()).decode()}).encode())
 
     def do_GET(self):
         if self.path == '/healthz':
             return self.send(200, b'{"status":"ok"}')
         if not self.valid_host():
             return self.error(403, 'Unrecognized host')
+        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/auth.js': ('auth.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
+        if self.path in files:
+            name, mime = files[self.path]
+            return self.send(200, (ROOT / name).read_bytes(), mime)
         if not self.authorize():
             return
+        if self.path == '/api/session':
+            return self.send(200, b'{"authenticated":true}')
         target = urlsplit(self.path)
         if target.path == '/api/exchange-rates':
             with self.server.fx_lock:
@@ -176,17 +236,19 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 return self.error(502, 'Catalog image unavailable')
             return self.send(200, body, mime)
-        files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
-        if self.path not in files:
-            return self.error(404, 'Not found')
-        name, mime = files[self.path]
-        self.send(200, (ROOT / name).read_bytes(), mime)
+        self.error(404, 'Not found')
 
     def do_POST(self):
         if not self.valid_host() or self.headers.get('Origin') != self.expected_origin():
             return self.error(403, 'Same-origin requests required')
+        if self.path == '/api/pair':
+            return self.pairing()
         if not self.authorize():
             return
+        if self.path == '/api/invites':
+            return self.create_invite()
+        if self.path == '/api/logout':
+            return self.send(200, b'{"signedOut":true}', cookie=self.session_cookie(clear=True))
         if self.path != '/api/identify':
             return self.error(404, 'Not found')
         if self.headers.get('Transfer-Encoding'):
@@ -282,6 +344,8 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     server.fx_lock = threading.Lock()
     server.api_key = os.environ.get('TCGAPI_KEY', '').strip()
     server.app_password = os.environ.get('POKESIFT_PASSWORD', '')
+    server.auth_lock = threading.Lock()
+    server.auth_attempts = deque()
     server.scan_times = deque()
     server.scan_lock = threading.Lock()
     return server

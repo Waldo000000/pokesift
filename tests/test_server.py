@@ -4,10 +4,11 @@ import json
 import threading
 import unittest
 from server import make_server, forward, fetch_card_image
+from auth import mint_token
 from unittest.mock import patch, MagicMock
 
 PASSWORD = 'test-app-password-1234'
-AUTH = 'Basic ' + base64.b64encode(('pokesift:' + PASSWORD).encode()).decode()
+
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'test'
 
@@ -26,6 +27,7 @@ class ServerTests(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.host = f'127.0.0.1:{self.server.server_port}'
+        self.cookie = 'pokesift=' + mint_token(PASSWORD, 'session', 'http://' + self.host)
 
     def tearDown(self):
         self.server.shutdown()
@@ -33,7 +35,7 @@ class ServerTests(unittest.TestCase):
         self.thread.join()
 
     def request(self, body=PNG, **changes):
-        headers = {'Origin': 'http://' + self.host, 'Content-Type': 'image/png', 'Authorization': AUTH}
+        headers = {'Origin': 'http://' + self.host, 'Content-Type': 'image/png', 'Cookie': self.cookie}
         headers.update(changes)
         conn = http.client.HTTPConnection(self.host, timeout=5)
         conn.request('POST', '/api/identify', body, headers)
@@ -51,13 +53,13 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(headers['Cache-Control'], 'no-store')
 
     def test_anonymous_cannot_spend_scans(self):
-        status, _, headers = self.request(Authorization='')
+        status, _, headers = self.request(Cookie='')
         self.assertEqual(status, 401)
-        self.assertIn('WWW-Authenticate', headers)
+        self.assertNotIn('WWW-Authenticate', headers)
         self.assertEqual(self.calls, [])
 
     def test_wrong_password_cannot_spend_scans(self):
-        self.assertEqual(self.request(Authorization='Basic dXNlcjpiYWQ=')[0], 401)
+        self.assertEqual(self.request(Cookie='pokesift=invalid')[0], 401)
         self.assertEqual(self.calls, [])
 
     def test_browser_key_cannot_override_server_secret(self):
@@ -80,17 +82,65 @@ class ServerTests(unittest.TestCase):
         conn = http.client.HTTPConnection(self.host, timeout=5)
         conn.request('GET', '/')
         r = conn.getresponse()
-        self.assertEqual(r.status, 401)
+        self.assertEqual(r.status, 200)
+        self.assertNotIn('WWW-Authenticate', dict(r.getheaders()))
         r.read()
         conn.close()
         conn = http.client.HTTPConnection(self.host, timeout=5)
-        conn.request('GET', '/', headers={'Authorization': AUTH})
+        conn.request('GET', '/', headers={'Cookie': self.cookie})
         r = conn.getresponse()
         self.assertEqual(r.status, 200)
         body = r.read()
         self.assertNotIn(b'id="key"', body)
         self.assertNotIn(b'test-key', body)
         conn.close()
+
+    def auth_request(self, path, body, cookie='', origin=None):
+        conn = http.client.HTTPConnection(self.host, timeout=5)
+        conn.request('POST', path, json.dumps(body), {'Origin': origin or 'http://' + self.host, 'Content-Type': 'application/json', 'Cookie': cookie})
+        response = conn.getresponse()
+        result = response.status, json.loads(response.read()), dict(response.getheaders())
+        conn.close()
+        return result
+
+    def test_pairing_cookie_and_invite_creation(self):
+        invite = mint_token(PASSWORD, 'invite', 'http://' + self.host)
+        status, result, headers = self.auth_request('/api/pair', {'invite': invite})
+        self.assertEqual(status, 200)
+        cookie = headers['Set-Cookie']
+        self.assertIn('HttpOnly', cookie)
+        self.assertIn('SameSite=Strict', cookie)
+        self.assertIn('Max-Age=2592000', cookie)
+        status, result, _ = self.auth_request('/api/invites', {}, cookie.split(';')[0])
+        self.assertEqual(status, 200)
+        self.assertIn('/#invite=', result['url'])
+        self.assertTrue(result['qr'].startswith('data:image/svg+xml;base64,'))
+        self.assertNotIn(PASSWORD, json.dumps(result))
+        self.assertEqual(self.auth_request('/api/pair', {'invite': invite})[0], 200)
+        self.assertEqual(self.auth_request('/api/logout', {}, cookie.split(';')[0])[0], 200)
+        self.assertEqual(self.calls, [])
+
+    def test_production_pairing_uses_secure_host_cookie(self):
+        origin = 'https://pokesift-test.onrender.com'
+        self.server.public_origin = origin
+        conn = http.client.HTTPConnection(self.host, timeout=5)
+        conn.request('POST', '/api/pair', json.dumps({'invite':mint_token(PASSWORD,'invite',origin)}), {'Host':'pokesift-test.onrender.com','Origin':origin,'Content-Type':'application/json'})
+        r = conn.getresponse()
+        self.assertEqual(r.status,200)
+        cookie = r.getheader('Set-Cookie')
+        self.assertTrue(cookie.startswith('__Host-pokesift='))
+        for flag in ['Secure','HttpOnly','SameSite=Strict','Path=/']:
+            self.assertIn(flag,cookie)
+        self.assertNotIn('Domain=',cookie)
+        r.read();conn.close()
+
+    def test_pairing_rejects_expired_wrong_purpose_and_cross_origin(self):
+        origin = 'http://' + self.host
+        for token in ['invalid', mint_token(PASSWORD, 'invite', origin, now=0), mint_token(PASSWORD, 'session', origin)]:
+            self.assertEqual(self.auth_request('/api/pair', {'invite': token})[0], 401)
+        invite = mint_token(PASSWORD,'invite',origin)
+        self.assertEqual(self.auth_request('/api/pair', {'invite':invite}, origin='https://evil.example')[0],403)
+        self.assertEqual(self.auth_request('/api/invites', {})[0],401)
 
     def test_foreign_origin_never_forwarded(self):
         self.assertEqual(self.request(Origin='https://foreign.example')[0], 403)
@@ -119,7 +169,7 @@ class ServerTests(unittest.TestCase):
 
     def test_hosted_origin_forwards(self):
         self.server.public_origin = 'https://pokesift-test.onrender.com'
-        status, _, _ = self.request(Host='pokesift-test.onrender.com', Origin='https://pokesift-test.onrender.com')
+        status, _, _ = self.request(Host='pokesift-test.onrender.com', Origin='https://pokesift-test.onrender.com', Cookie='__Host-pokesift='+mint_token(PASSWORD,'session','https://pokesift-test.onrender.com'))
         self.assertEqual(status, 200)
         self.assertEqual(len(self.calls), 1)
 
@@ -142,24 +192,24 @@ class ServerTests(unittest.TestCase):
         self.server.exchange_rates = MagicMock(return_value=rates)
         def request(auth):
             conn = http.client.HTTPConnection(self.host, timeout=5)
-            conn.request('GET', '/api/exchange-rates', headers={'Authorization': auth})
+            conn.request('GET', '/api/exchange-rates', headers={'Cookie': auth})
             r = conn.getresponse()
             result = r.status, json.loads(r.read())
             conn.close()
             return result
         self.assertEqual(request('')[0], 401)
         self.server.exchange_rates.assert_not_called()
-        self.assertEqual(request(AUTH), (200, rates))
-        self.assertEqual(request(AUTH), (200, rates))
+        self.assertEqual(request(self.cookie), (200, rates))
+        self.assertEqual(request(self.cookie), (200, rates))
         self.server.exchange_rates.assert_called_once()
         self.server.fx_cached_at = -999999
         self.server.exchange_rates.side_effect = OSError('Offline')
-        status, result = request(AUTH)
+        status, result = request(self.cookie)
         self.assertEqual(status, 200)
         self.assertTrue(result['stale'])
         self.assertEqual(result['rates'], rates['rates'])
         self.server.fx_cache = None
-        self.assertEqual(request(AUTH)[0], 503)
+        self.assertEqual(request(self.cookie)[0], 503)
 
     def test_catalog_image_requires_auth(self):
         conn = http.client.HTTPConnection(self.host, timeout=5)
@@ -173,7 +223,7 @@ class ServerTests(unittest.TestCase):
         self.server.card_image = MagicMock(return_value=(PNG, 'image/png'))
         for query, expected in [('id=12345', 200), ('id=https://evil.example', 400), ('id=12345&url=x', 400), ('id=0', 400)]:
             conn = http.client.HTTPConnection(self.host, timeout=5)
-            conn.request('GET', '/api/card-image?' + query, headers={'Authorization': AUTH})
+            conn.request('GET', '/api/card-image?' + query, headers={'Cookie': self.cookie})
             r = conn.getresponse()
             self.assertEqual(r.status, expected)
             r.read()

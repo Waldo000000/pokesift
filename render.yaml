@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     branch: main
-    buildCommand: python -m unittest discover -s tests -v
+    buildCommand: pip install -r requirements.txt && python -m unittest discover -s tests -v
     startCommand: python server.py
     healthCheckPath: /healthz
     autoDeployTrigger: commit

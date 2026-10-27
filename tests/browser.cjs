@@ -1,6 +1,6 @@
 // No real API requests: every identification call is intercepted with a fixture.
 const { chromium } = require('playwright');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const root = path.resolve(__dirname,'..');
@@ -16,9 +16,10 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
  try{
   await waitFor(()=>fetch(`http://127.0.0.1:${port}/healthz`).then(r=>r.ok).catch(()=>false));
   browser=await chromium.launch({...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : require('node:fs').existsSync('/usr/bin/chromium') ? {executablePath:'/usr/bin/chromium'} : {}),args:['--no-sandbox','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});
-  const options={viewport:{width:390,height:844},httpCredentials:{username:'pokesift',password},permissions:['camera']};
+  const options={viewport:{width:390,height:844},permissions:['camera']};
   let usdRate=2/3;
-  const newContext=async()=>{const c=await browser.newContext(options);await c.route('**/api/exchange-rates',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({base:'AUD',date:'2026-10-26',rates:{USD:usdRate,EUR:.6,AUD:1},source:'Test ECB fixture',fetchedAt:new Date().toISOString()})}));return c;};
+  const cookie = execFileSync('python3',['-c',`from auth import mint_token; print(mint_token('${password}', 'session', 'http://127.0.0.1:${port}'))`],{cwd:root}).toString().trim();
+  const newContext=async()=>{const c=await browser.newContext(options);await c.addCookies([{name:'pokesift',value:cookie,url:`http://127.0.0.1:${port}`,httpOnly:true,sameSite:'Strict'}]);await c.route('**/api/exchange-rates',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({base:'AUD',date:'2026-10-26',rates:{USD:usdRate,EUR:.6,AUD:1},source:'Test ECB fixture',fetchedAt:new Date().toISOString()})}));return c;};
   const context=await newContext(), page=await context.newPage();
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   let count=0,inflight=0,maxInflight=0;
@@ -94,7 +95,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await waitFor(()=>fp.locator('#card-grid').textContent().then(t=>t.includes('Storage test')));
   await fp.locator('#close-camera').click();assert(await fp.locator('#storage-warning').isVisible());assert(await fp.locator('#export').isVisible());
   await full.close();
-  const offline=await browser.newContext(options), op=await offline.newPage();
+  const offline=await newContext(), op=await offline.newPage();
   await op.addInitScript(({key,saved})=>{
     localStorage.setItem(key,JSON.stringify({version:1,entries:saved}));
     localStorage.setItem('pokesift.fx.v1',JSON.stringify({base:'AUD',date:'2026-10-26',rates:{USD:.5,AUD:1},source:'Cached fixture'}));
@@ -105,7 +106,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert.match(await op.locator('#fx-refresh').textContent(),/cached/);
   assert.match(await op.locator('#card-grid').textContent(),/A\$10.80/);
   await offline.close();
-  const noRates=await browser.newContext(options), np=await noRates.newPage();
+  const noRates=await newContext(), np=await noRates.newPage();
   await np.addInitScript(({key,saved})=>localStorage.setItem(key,JSON.stringify({version:1,entries:saved})),{key,saved});
   await np.route('**/api/exchange-rates',r=>r.fulfill({status:503,body:'{}'}));
   await np.goto(`http://127.0.0.1:${port}`);
@@ -113,6 +114,40 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert.match(await np.locator('#card-grid').textContent(),/AUD unavailable/);
   assert(!(await np.locator('#card-grid').textContent()).includes('A$5.40'));
   await noRates.close();
+  const invite = execFileSync('python3',['-c',`from auth import mint_token; print(mint_token('${password}', 'invite', 'http://127.0.0.1:${port}'))`],{cwd:root}).toString().trim();
+  const pairing=await browser.newContext(options), pp=await pairing.newPage();
+  await pairing.route('**/api/exchange-rates',r=>r.fulfill({status:503,body:'{}'}));
+  await pp.goto(`http://127.0.0.1:${port}/#invite=${invite}`);
+  await waitFor(()=>pp.locator('body').getAttribute('data-auth').then(x=>x==='signed-in'));
+  assert.equal(new URL(pp.url()).hash,'');
+  assert(!(await pp.evaluate(()=>JSON.stringify(localStorage))).includes(invite));
+  const cookies=await pairing.cookies();assert(cookies.find(c=>c.name==='pokesift').httpOnly);
+  await pp.reload();await waitFor(()=>pp.locator('body').getAttribute('data-auth').then(x=>x==='signed-in'));
+  await pp.locator('#add-device').click();await waitFor(()=>pp.locator('#invite-qr').isVisible());
+  assert(await pp.locator('#invite-qr').evaluate(e=>e.complete && e.naturalWidth>0));
+  await pp.locator('#close-invite').click();
+  // Restore/export all records without identification calls, and skip duplicate IDs.
+  let restoreScans=0;pp.on('request',r=>{if(r.url().endsWith('/api/identify'))restoreScans++;});
+  pp.on('dialog',d=>d.accept());
+  const backup={format:'pokesift-backup',backupVersion:1,version:1,entries:saved,exchangeRates:{base:'AUD',date:'2026-10-26',rates:{AUD:1,USD:.5},source:'test'}};
+  const file={name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))};
+  await pp.locator('#backup-file').setInputFiles(file);
+  await waitFor(()=>pp.locator('.card-tile').count().then(n=>n===saved.length));
+  await pp.locator('#backup-file').setInputFiles(file);
+  await waitFor(()=>pp.locator('#toast').textContent().then(t=>t.includes('already')));
+  assert.equal(await pp.locator('.card-tile').count(),saved.length);assert.equal(restoreScans,0);
+  await pp.locator('#backup-file').setInputFiles({name:'invalid.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({version:1,entries:[{id:'bad',status:'matched',thumbnail:'https://evil.example/photo.jpg'}]}))});
+  await waitFor(()=>pp.locator('#toast').textContent().then(t=>t.includes('invalid')));
+  assert.equal(await pp.locator('.card-tile').count(),saved.length);assert.equal(restoreScans,0);
+  const downloadPromise=pp.waitForEvent('download');await pp.locator('#export').click();
+  const download=await downloadPromise;const stream=await download.createReadStream();const chunks=[];for await (const chunk of stream) chunks.push(chunk);
+  const exported=JSON.parse(Buffer.concat(chunks).toString());
+  assert.equal(exported.backupVersion,1);assert.equal(exported.entries.length,saved.length);
+  assert(exported.entries.some(e=>e.canonicalImage));assert(exported.exchangeRates);
+  assert(!JSON.stringify(exported).includes(invite));
+  await pp.locator('#sign-out').click();await waitFor(()=>pp.locator('body').getAttribute('data-auth').then(x=>x==='signed-out'));
+  assert(!(await pairing.cookies()).some(c=>c.name==='pokesift'));
+  await pairing.close();
   console.log('PASS: queued uploads, concurrency=2, out-of-order results, uninterrupted capture, browse during scans, details, persistence, filters, camera capture/release, interrupted reload, storage quota handling. Zero real scans.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exit(1)});

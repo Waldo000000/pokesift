@@ -7,13 +7,20 @@
   <meta name="referrer" content="no-referrer">
   <title>PokéSift · Your collection</title>
   <link rel="stylesheet" href="style.css">
+  <script src="auth.js" defer></script>
   <script src="app.js" defer></script>
 </head>
-<body>
+<body data-auth="pending">
   <header class="topbar">
     <a class="brand" href="/" aria-label="PokéSift home"><span class="brand-icon" aria-hidden="true">◒</span> PokéSift<span class="brand-dot">.</span></a>
     <span class="local-pill"><span aria-hidden="true">●</span> ON THIS DEVICE</span>
   </header>
+  <section id="pairing-view" class="pairing-view" aria-labelledby="pairing-title">
+    <p class="eyebrow">YOUR COLLECTION, ONE SCAN AWAY</p><h1 id="pairing-title">Welcome to PokéSift.</h1>
+    <p id="pairing-status" role="status" aria-live="polite">Checking this device…</p>
+    <p class="fineprint">New device? Scan a fresh invite QR from a paired device or ask the app owner for one.<br>Already paired devices stay signed in for 30 days. No password popup.</p>
+    <button id="check-session" class="primary">Check again</button>
+  </section>
   <main id="collection-view">
     <section class="collection-heading">
       <div><p class="eyebrow">A LITTLE ORDER. A LOT OF DISCOVERY.</p><h1>Your collection<span>.</span></h1><p class="intro">One card at a time. All in one place.</p></div>
@@ -31,7 +38,7 @@
     </section>
     <p id="no-results" class="no-results" hidden>No cards found. Try another name or set.</p>
     <section id="card-grid" class="card-grid" aria-label="Saved cards"></section>
-    <footer class="collection-footer"><button id="fx-refresh" class="text-button fx-button" title="Refresh exchange rates">AUD · loading rates ↻</button><span id="saved-note">Saved in this browser. No cloud sync.</span><button id="export" class="text-button" hidden>Export collection ↗</button></footer>
+    <footer class="collection-footer"><button id="fx-refresh" class="text-button fx-button" title="Refresh exchange rates">AUD · loading rates ↻</button><span id="saved-note">Saved in this browser. No cloud sync.</span><button id="export" class="text-button" hidden>Back up collection ↗</button><button id="import-backup" class="text-button">Restore backup</button><input id="backup-file" type="file" accept="application/json,.json" hidden><button id="add-device" class="text-button">Add another device</button><button id="sign-out" class="text-button">Sign out</button></footer>
   </main>
   <dialog id="camera-view" class="camera-dialog" aria-labelledby="camera-title">
     <header class="camera-header"><div><p class="eyebrow">BUILD YOUR COLLECTION</p><h2 id="camera-title">Find your next card.</h2></div><button id="close-camera" class="round-button" aria-label="Close camera and browse collection">✕</button></header>
@@ -52,6 +59,7 @@
     <div class="detail-image"><img id="detail-photo" alt="Photographed card"><span id="detail-badge" class="status-badge"></span><button id="toggle-photo" class="text-button" hidden>View your photo</button></div>
     <div class="detail-copy"><p id="detail-set" class="eyebrow"></p><h2 id="detail-title"></h2><p id="detail-meta" class="detail-meta"></p><p id="detail-message" class="notice" hidden></p><div id="detail-prices"></div><p id="valuation-note" class="fineprint" hidden>Catalog reference prices, not an appraisal. Your card’s condition, authenticity and finish can change its value.</p><div id="detail-warnings"></div><details id="raw-details"><summary>Identification details</summary><pre id="detail-raw"></pre></details><button id="remove-card" class="text-button danger">Remove from collection</button></div>
   </dialog>
+  <dialog id="invite-view" class="invite-dialog" aria-labelledby="invite-title"><button id="close-invite" class="round-button detail-close" aria-label="Close invite">✕</button><p class="eyebrow">PAIR ANOTHER DEVICE</p><h2 id="invite-title">Scan. You’re in.</h2><p>Open your other device’s camera and scan this QR.</p><img id="invite-qr" alt="Device pairing QR code" hidden><p id="invite-status" role="status"></p><button id="copy-invite" class="primary" disabled>Copy pairing link</button><p class="fineprint">Anyone with this QR can join for the next 10 minutes. They’ll stay signed in for 30 days. Share it only with devices you trust.</p></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <noscript>This app needs JavaScript to scan and save cards.</noscript>
 </body>

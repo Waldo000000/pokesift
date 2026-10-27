@@ -11,13 +11,15 @@ In the `pokesift-dev` service's **Environment** settings, set these server-side 
 
 Save the environment and deploy the latest `main` commit. Cloud task secrets are separate from Render secrets; configuring one does not configure the other. The app returns 503 until both secrets are configured. `/healthz` remains available for hosting health checks and reveals no configuration details.
 
-Open the HTTPS service URL. At the browser's sign-in prompt use username **pokesift** and your `POKESIFT_PASSWORD`. Then select a photo and submit it once. No API key is entered or sent by the browser. HTTP Basic authentication is appropriate here for a single-owner development app behind Render's HTTPS endpoint; this is not a multi-user account system. The browser can remember login credentials. Rotate the password in Render and redeploy to revoke access.
+Open a fresh pairing QR once to remember a device for 30 days. There is no password prompt. A paired device can choose **Add another device** to generate a new QR inside the app. For bootstrap/recovery, securely inject the existing `POKESIFT_PASSWORD` into `scripts/create_invite.py --origin https://pokesift-dev.onrender.com --output /private/path/invite.svg`. Never put the password in command arguments or Git. The QR itself is a temporary bearer credential; do not commit it either.
+
+Invites are reusable for ten minutes. They carry an HMAC-SHA256 signature derived from the environment password with purpose separation; invite and session tokens cannot be substituted for each other. Both token types are bound to the exact app origin and expiry. The QR carries the invite in a URL fragment, which is removed immediately by the page and exchanged via a same-origin HTTPS POST. It is never stored in localStorage. Production sessions use a `__Host-` cookie with Secure, HttpOnly, SameSite=Strict, Path=/ and a 30-day expiry. Existing sessions survive deployments with the same password. Password rotation revokes all sessions and invites. Sign out clears this browser's cookie; it does not revoke a stolen copy or erase local collection data. This stateless development design has no per-device revocation database.
 
 `render.yaml` configures a free Python service and deployment on `main` commits. GitHub must be connected to Render for automatic deploys; otherwise use Manual Deploy. Free instances can sleep. The old `.openai/hosting.json` is historical and unused.
 
 ## Protections and limits
 
-- All page assets and scanning requests require authentication. Only health checks are public.
+- The static sign-in shell and health checks are public and contain no secrets. Scanning, catalog images, rates and creating invites require a signed device session. No HTTP Basic authentication challenges are sent.
 - Missing/short passwords, identical API key and password, or a missing API key fail closed.
 - Same-origin POST checks, exact deployment Host validation, no CORS grant, no automatic redirects or retries, and TLS verification for the fixed provider endpoint.
 - API key comes only from the server environment; client `X-API-Key` headers cannot override it. Provider key echoes are redacted server-side, including JSON-escaped strings.
@@ -29,7 +31,7 @@ Each photo may consume a scan, including timeouts. Never automatically retry. Pr
 
 ## Development
 
-Python 3.12+; no third-party runtime dependencies. Node.js checks JavaScript. Inject `TCGAPI_KEY` and a separate `POKESIFT_PASSWORD` securely in the process environment, then run:
+Python 3.12+ with the pinned `qrcode` dependency (`pip install -r requirements.txt`). Node.js checks JavaScript. Inject `TCGAPI_KEY` and a separate `POKESIFT_PASSWORD` securely in the process environment, then run:
 
 ```sh
 python3 server.py
@@ -67,3 +69,9 @@ npm run test:browser
 ```
 
 Browser tests start a temporary authenticated local server and mock every identification and rate request. They cover rapid multi-upload, out-of-order responses, the two-request limit, camera capture/release, quiet price arrivals, canonical-image persistence, browsing/search/review filtering, reload interruption, storage failure, currency assumptions, explicit non-USD currencies, and AUD revaluation without mutating source quotes. They consume no real scans. GitHub Actions runs both these and the Python suite. For manual live verification, keep a strict scan budget and never retry a paid request automatically.
+
+## Backups and future database migration
+
+**Back up collection** downloads a versioned JSON backup containing all collection entries: stable entry IDs, capture timestamps, original identification results and candidates, original prices/currencies, assumption flags and provenance, capture thumbnails, canonical image data, scan outcomes/messages, plus the separately cached exchange rates. It contains no passwords, session cookies or invites. The original API responses and images can be migrated to a database without scanning again.
+
+**Restore backup** accepts current versioned backups and the earlier `version: 1` collection exports. It validates images/result structures, merges by entry ID without replacing existing records, and skips duplicate IDs. Pending scans become interrupted records and are never resubmitted. Import makes no identification or catalog-image requests. Imports are limited to 25 MB/1,000 entries; localStorage quota failures remain visible and imported data can be exported from memory before leaving. Keep the original backup until you confirm the restore. Local collections are not encrypted against another person using the same browser profile.

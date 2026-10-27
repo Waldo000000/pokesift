@@ -317,16 +317,63 @@ for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => {
   render();
 };
 $('export').onclick = () => {
-  const blob = new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),entries},null,2)],{type:'application/json'});
+  const blob = new Blob([JSON.stringify({format:'pokesift-backup',backupVersion:1,version:1,exportedAt:new Date().toISOString(),entries,exchangeRates:fx},null,2)],{type:'application/json'});
   const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = 'pokesift-collection.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
+};
+function validateBackup(value) {
+  if (!value || value.version !== 1 || (value.backupVersion !== undefined && value.backupVersion !== 1) || !Array.isArray(value.entries) || value.entries.length > 1000) throw new Error('Unsupported or oversized backup. Choose a PokéSift JSON backup.');
+  const statuses = new Set([...busyStates,...reviewStates,'matched']);
+  const imageOK = image => typeof image === 'string' && image.length <= 2*1024*1024 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image);
+  for (const e of value.entries) {
+    if (!e || typeof e.id !== 'string' || !e.id.length || e.id.length > 100 || !statuses.has(e.status) || !imageOK(e.thumbnail) || (e.canonicalImage && !imageOK(e.canonicalImage))) throw new Error('This backup contains an invalid card entry. Nothing was imported.');
+    if (e.result) {
+      const candidates=e.result.data?.candidates ?? [];
+      if (!e.result.data || typeof e.result.data !== 'object' || !Array.isArray(candidates) || candidates.length > 20 || candidates.some(c=>!c || typeof c !== 'object' || Array.isArray(c) || (c.prices !== undefined && (!Array.isArray(c.prices) || c.prices.some(p=>!p || typeof p !== 'object' || Array.isArray(p)))))) throw new Error('This backup contains invalid card results. Nothing was imported.');
+    }
+  }
+  return value;
+}
+$('import-backup').onclick = () => $('backup-file').click();
+$('backup-file').onchange = async event => {
+  const file=event.target.files[0]; event.target.value=''; if (!file) return;
+  try {
+    if (active || jobs.length || pendingPreparation) throw new Error('Let current scans finish before restoring a backup.');
+    if (file.size > 25*1024*1024) throw new Error('This backup exceeds the 25 MB import limit.');
+    const backup=validateBackup(JSON.parse(await file.text())), seen=new Set(entries.map(e=>e.id));
+    const added=[]; let skipped=0;
+    for (const e of backup.entries) {
+      if (seen.has(e.id)) { skipped++; continue; }
+      seen.add(e.id);
+      const result=normalizeResult(e.result);
+      added.push({...e,result,currencyAssumed:Boolean(result?.data?.candidates?.some(c=>c.prices?.some(p=>p.currency_assumed))),
+        ...(busyStates.has(e.status)?{status:'interrupted',message:'This scan was unfinished when backed up. It has not been resubmitted.'}:{})});
+    }
+    if (!added.length) { notify('All cards in this backup are already in your collection.'); return; }
+    if (!confirm(`Restore ${added.length} cards? ${skipped} duplicate entries will be skipped. Existing cards stay unchanged. No scans will be used.`)) return;
+    entries=[...added,...entries];
+    if (validFx(backup.exchangeRates) && (!fx || backup.exchangeRates.date > fx.date)) {
+      fx=backup.exchangeRates; fxFailed=true;
+      try { localStorage.setItem(FX_KEY,JSON.stringify(fx)); } catch {}
+    }
+    const saved=save(); render();
+    notify(saved ? `${added.length} cards restored. No scans used.` : 'Cards restored in memory. Export them before leaving; browser storage is full.');
+  } catch(error) { notify(error instanceof SyntaxError ? 'That file is not a valid JSON backup. Nothing was imported.' : error.message); }
 };
 window.addEventListener('beforeunload',event => { if (active || jobs.length || pendingPreparation) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('pagehide',stopCamera);
 window.addEventListener('storage',event => {
   if (event.key === STORAGE_KEY) { readOnlyStorage = true; storageWarning('Your collection changed in another tab. Export any new cards here, then reload to see that tab’s saved collection. This tab will not overwrite it.'); }
 });
-try { const stored = JSON.parse(localStorage.getItem(FX_KEY)); if (validFx(stored)) { fx = stored; fxFailed = true; } } catch {}
-$('fx-refresh').onclick = refreshFx;
-load(); render(); refreshFx();
-setInterval(refreshFx,6*3600*1000);
-document.addEventListener('visibilitychange',() => { if (!document.hidden && (!fx || Date.now()-Date.parse(fx.fetchedAt || 0)>6*3600*1000)) refreshFx(); });
+let initialized = false;
+function initializeCollection() {
+  if (initialized) { refreshFx(); return; }
+  initialized = true;
+  try { const stored = JSON.parse(localStorage.getItem(FX_KEY)); if (validFx(stored)) { fx = stored; fxFailed = true; } } catch {}
+  $('fx-refresh').onclick = refreshFx;
+  load(); render(); refreshFx();
+  setInterval(() => { if (document.body.dataset.auth === 'signed-in') refreshFx(); },6*3600*1000);
+  document.addEventListener('visibilitychange',() => { if (!document.hidden && document.body.dataset.auth === 'signed-in' && (!fx || Date.now()-Date.parse(fx.fetchedAt || 0)>6*3600*1000)) refreshFx(); });
+}
+window.addEventListener('pokesift:authenticated',initializeCollection);
+window.addEventListener('pokesift:unauthorized',() => { stopCamera(); for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close(); });
+if (document.body.dataset.auth === 'signed-in') initializeCollection();
