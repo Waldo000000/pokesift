@@ -87,6 +87,45 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.deepEqual(errors,[]);
   await context.close();
+  // The portrait preview and uploaded pixels must agree for landscape and portrait cameras.
+  for(const [sourceWidth,sourceHeight,viewport] of [[640,360,{width:1280,height:900}],[360,640,{width:390,height:844}],[1280,720,{width:360,height:668}]]) {
+    const cropped=await newContext(),p=await cropped.newPage();await p.setViewportSize(viewport);
+    await p.addInitScript(({width,height})=>{
+      navigator.mediaDevices.getUserMedia=async()=>{
+        const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+        const ctx=canvas.getContext('2d');ctx.fillStyle='#ff0000';ctx.fillRect(0,0,width,height);
+        const w=Math.min(width,height*63/88)/1.5,h=w*88/63;
+        ctx.fillStyle='#00ff00';ctx.fillRect((width-w)/2-3,(height-h)/2-3,w+6,h+6);
+        ctx.fillStyle='#0000ff';ctx.fillRect(width/2-12,height/2-12,24,24);
+        window.cropFixtureCanvas=canvas;return canvas.captureStream(15);
+      };
+    },{width:sourceWidth,height:sourceHeight});
+    const uploads=[];
+    await p.route('**/api/identify',r=>{uploads.push(r.request().postDataBuffer());return r.fulfill({json:fixture('Cropped '+uploads.length)});});
+    await p.route('**/api/card-image?*',r=>r.fulfill({contentType:'image/png',body:photo.buffer}));
+    await p.goto(`http://127.0.0.1:${port}`);await p.locator('#open-camera').click();await p.locator('#enable-camera').click();
+    await waitFor(()=>p.locator('#shutter').isEnabled());
+    const preview=await p.locator('#camera-crop').boundingBox();assert(Math.abs(preview.width/preview.height-63/88)<.005);
+    assert(await p.locator('#crop-zoom-out').isDisabled());
+    await p.locator('#shutter').click();await waitFor(()=>uploads.length===1);await waitFor(()=>p.locator('#activity').isHidden());
+    await p.locator('#crop-zoom-in').click();await p.locator('#crop-zoom-in').click();assert.equal(await p.locator('#crop-zoom-value').textContent(),'1.5×');
+    assert.equal(uploads.length,1,'Changing framing must not submit a scan');
+    await p.locator('#shutter').click();await waitFor(()=>uploads.length===2);await waitFor(()=>p.locator('#activity').isHidden());
+    const result=await p.evaluate(async k=>{
+      const saved=JSON.parse(localStorage.getItem(k)).entries,entry=saved[0],blob=await PokeSiftPhotos.get(entry.id),bitmap=await createImageBitmap(blob);
+      const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;const ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0);bitmap.close();
+      const pixel=(x,y)=>[...ctx.getImageData(x,y,1,1).data];
+      return {width:canvas.width,height:canvas.height,corners:[pixel(8,8),pixel(canvas.width-9,8),pixel(8,canvas.height-9),pixel(canvas.width-9,canvas.height-9)],center:pixel(canvas.width>>1,canvas.height>>1),capture:entry.capture,image:await PokeSiftPhotos.dataURL(blob),first:saved[1].capture};
+    },key);
+    assert(Math.abs(result.width/result.height-63/88)<.01);assert(result.width<sourceWidth);assert(result.height<sourceHeight);
+    assert(result.corners.every(([r,g,b])=>g>220 && r<30 && b<30),'Uploaded crop must exclude red surroundings');
+    assert(result.center[2]>220 && result.center[0]<30 && result.center[1]<30,'Centered marker must remain centered');
+    assert.equal(result.capture.sourceWidth,sourceWidth);assert.equal(result.capture.zoom,1.5);assert.equal(result.first.zoom,1);
+    assert.equal(Buffer.from(result.image.split(',')[1],'base64').compare(uploads[1]),0,'Archived upload must equal bytes sent to API');
+    const tray=await p.locator('#result-tray').boundingBox();assert(tray.y+tray.height<=viewport.height+1,'Values must remain visible while framing');
+    assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await p.locator('#close-camera').click();await cropped.close();
+  }
   // Interrupted work: never replay an unfinished upload after navigation.
   const interrupted=await newContext(), ip=await interrupted.newPage();
   await ip.route('**/api/identify',()=>{});

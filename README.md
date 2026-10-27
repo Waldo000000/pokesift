@@ -15,6 +15,10 @@ A camera-first Pokémon collection app: scan cards in succession, watch their va
 
 Matched cards show a value directly in the collection and camera tray. Where multiple positive quotes exist, the default is the lowest estimate. The card detail selector lets you choose a particular printing/condition quote instead; that choice survives price changes, reloads and backups. Unconfirmed candidates never supply a valuation. Prices are catalog references, not an assessment of the physical card's condition, grade or authenticity.
 
+Live camera captures use a portrait frame with the proportions of a Pokémon card (63:88), including on landscape laptop webcams. Only the area shown in that preview is uploaded. Keep all four card edges inside the guides and use **＋ / −** to adjust framing from 1× to 3× before capturing. This is a digital crop; moving the card closer still helps retain readable detail. Framing adjustments use no API requests. Imported photos retain their original framing.
+
+Camera uploads retain their source dimensions, crop rectangle and zoom in the collection and backups. The archived scan image is the exact cropped upload; the full surrounding webcam frame is not retained.
+
 ## Identification, images and prices
 
 | Service | Role | Configuration and coverage |

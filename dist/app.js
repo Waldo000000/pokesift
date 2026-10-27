@@ -11,6 +11,8 @@ let focusedId = null, preparing = Promise.resolve(), readOnlyStorage = false, to
 const jobs = [], sessionIds = new Set();
 let priceBatch = {running:false,message:''};
 let retakeId=null, retakePreparing=false, unsavedCollection=false;
+let cameraZoom=1;
+const CARD_ASPECT=63/88;
 
 function notify(message) {
   const toast = $('toast');
@@ -285,7 +287,7 @@ async function preparePhoto(file) {
   } finally { bitmap.close(); }
 }
 let pendingPreparation = 0;
-function addFiles(files) {
+function addFiles(files, capture=null) {
   const replacingId=retakeId;
   if(replacingId) {if(retakePreparing)return;files=files.slice(0,1);}
   for (const file of files) {
@@ -301,7 +303,7 @@ function addFiles(files) {
           e=entries.find(item=>item.id===replacingId);
           if(!e || e.status!=='retake')throw new Error('This card changed. Open it again before retaking.');
           retainHistoricalEvidence(e);
-          const oldPhoto=await PokeSiftPhotos.get(e.id),history={id:crypto.randomUUID(),thumbnail:e.thumbnail,capturedAt:e.lastCapturedAt || e.createdAt,result:structuredClone(e.result || null)};
+          const oldPhoto=await PokeSiftPhotos.get(e.id),history={id:crypto.randomUUID(),thumbnail:e.thumbnail,capturedAt:e.lastCapturedAt || e.createdAt,result:structuredClone(e.result || null),capture:e.capture || null};
           if(oldPhoto)history.scanPhoto={id:history.id,mime:oldPhoto.type,bytes:oldPhoto.size,quality:'exact_upload',persisted:await PokeSiftPhotos.put(history.id,oldPhoto)};
           else if(e.scanPhoto)history.scanPhoto={...e.scanPhoto,id:history.id,persisted:false};
           e.scanHistory=[...(e.scanHistory || []),history];e.lastCapturedAt=new Date().toISOString();
@@ -310,6 +312,7 @@ function addFiles(files) {
         } else e={id:crypto.randomUUID(),createdAt:new Date().toISOString(),status:'queued',thumbnail};
         const persisted = await PokeSiftPhotos.put(e.id,blob);
         e.scanPhoto = {id:e.id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted};
+        e.capture=capture ? structuredClone(capture) : {source:'photo_library'};
         if(!replacingId)entries.unshift(e);
         else {retakeId=null;renderRetakeMode();}
         sessionIds.add(e.id); jobs.push({id:e.id,blob}); save(); render(); pump();
@@ -574,6 +577,24 @@ function renderEnrichment(e) {
   }
 }
 $('check-catalog').onclick=()=>{const e=entries.find(e=>e.id===focusedId);if(e)enrichCard(e);};
+function cameraCrop(width,height,zoom=cameraZoom) {
+  if(!Number.isFinite(width) || !Number.isFinite(height) || width<1 || height<1)throw new Error('Wait for the camera preview before capturing.');
+  const cropWidth=Math.min(width,height*CARD_ASPECT)/Math.max(1,Math.min(3,zoom));
+  const cropHeight=cropWidth/CARD_ASPECT;
+  return {x:(width-cropWidth)/2,y:(height-cropHeight)/2,width:cropWidth,height:cropHeight};
+}
+function renderCameraFraming() {
+  const stage=$('camera-crop').parentElement;
+  // Leave room beside the portrait preview for touch-sized zoom controls.
+  const width=Math.max(1,Math.min(stage.clientWidth-76,(stage.clientHeight-16)*CARD_ASPECT));
+  $('camera-crop').style.width=width+'px';$('camera-crop').style.height=(width/CARD_ASPECT)+'px';
+  $('camera-video').style.transform=`scale(${cameraZoom})`;
+  $('crop-zoom-value').textContent=cameraZoom.toFixed(2).replace(/\.?0+$/,'')+'×';
+  $('crop-zoom-in').disabled=cameraZoom>=3;$('crop-zoom-out').disabled=cameraZoom<=1;
+}
+$('crop-zoom-in').onclick=()=>{cameraZoom=Math.min(3,cameraZoom+.25);renderCameraFraming();};
+$('crop-zoom-out').onclick=()=>{cameraZoom=Math.max(1,cameraZoom-.25);renderCameraFraming();};
+new ResizeObserver(renderCameraFraming).observe($('camera-crop').parentElement);
 async function enableCamera() {
   if (!navigator.mediaDevices?.getUserMedia) { $('camera-help').textContent = 'Live camera is unavailable in this browser. Choose photos from your library instead.'; return; }
   const generation = ++cameraGeneration;
@@ -583,6 +604,7 @@ async function enableCamera() {
     if (!$('camera-view').open || generation !== cameraGeneration) { next.getTracks().forEach(track => track.stop()); return; }
     if (stream) stream.getTracks().forEach(track => track.stop());
     stream = next; $('camera-video').srcObject = next; await $('camera-video').play();
+    $('camera-crop').hidden=false;$('camera-framing').hidden=false;renderCameraFraming();
     $('camera-video').hidden = false; $('camera-placeholder').hidden = true; $('viewfinder').hidden = false; $('shutter').disabled = false;
   } catch {
     $('camera-help').textContent = 'Camera access wasn’t available. You can allow it in your browser settings, or choose photos below.';
@@ -606,6 +628,7 @@ function stopCamera() {
   clearTimeout(latestTimer); $('latest-find').hidden = true;
   cameraGeneration++; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null;
   $('camera-video').srcObject = null; $('camera-video').hidden = true; $('viewfinder').hidden = true; $('camera-placeholder').hidden = false; $('shutter').disabled = true;
+  $('camera-crop').hidden=true;$('camera-framing').hidden=true;
 }
 $('open-camera').onclick = openCamera; $('empty-add').onclick = openCamera;
 $('enable-camera').onclick = enableCamera;
@@ -618,11 +641,14 @@ $('shutter').onclick = async() => {
   const video = $('camera-video'); if (!stream || !video.videoWidth || video.readyState < 2) return;
   $('shutter').disabled = true;
   try {
-    const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video,0,0);
+    const crop=cameraCrop(video.videoWidth,video.videoHeight);
+    const capture={source:'camera',sourceWidth:video.videoWidth,sourceHeight:video.videoHeight,zoom:cameraZoom,crop};
+    const canvas = document.createElement('canvas');canvas.width=Math.max(1,Math.round(crop.width));canvas.height=Math.max(1,Math.round(crop.height));
+    canvas.getContext('2d').drawImage(video,crop.x,crop.y,crop.width,crop.height,0,0,canvas.width,canvas.height);
     const blob = await new Promise(resolve => canvas.toBlob(resolve,'image/jpeg',.95));
-    if (blob) addFiles([new File([blob],'card.jpg',{type:'image/jpeg'})]);
+    if (blob) addFiles([new File([blob],'card.jpg',{type:'image/jpeg'})],capture);
     $('capture-flash').hidden = false; setTimeout(() => { $('capture-flash').hidden = true; },120);
+  } catch(error) {notify(error.message || 'Could not capture this photo. Try again when the camera is ready.');
   } finally { $('shutter').disabled = !stream; }
 };
 $('search').oninput = render;
