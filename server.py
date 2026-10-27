@@ -210,8 +210,9 @@ class Handler(BaseHTTPRequestHandler):
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/auth.js': ('auth.js', 'text/javascript'), '/photo-store.js': ('photo-store.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
         files.update({f'/{name}': (name, mime) for name, mime in [('species-index.js','text/javascript'),('collection-views.js','text/javascript'),('collection-room.js','text/javascript'),('collection-room.css','text/css'),('collection-room.html','text/html; charset=utf-8')]})
         # Public, static design samples. These use demo data and never call providers.
-        files.update({f'/concepts/{name}.html': (f'concepts/{name}.html', 'text/html; charset=utf-8') for name in ('binder', 'desk', 'zoo')})
+        files.update({f'/concepts/{name}.html': (f'concepts/{name}.html', 'text/html; charset=utf-8') for name in ('binder', 'desk', 'zoo', 'card-study')})
         files.update({f'/concepts/{name}': (f'concepts/{name}', mime) for name, mime in [('concepts.css', 'text/css'), ('concepts.js', 'text/javascript'), ('tactile.js', 'text/javascript'), ('art.js', 'text/javascript')]})
+        files.update({f'/concepts/card-study.{ext}': (f'concepts/card-study.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         if self.path in files:
             name, mime = files[self.path]
             return self.send(200, (ROOT / name).read_bytes(), mime)
