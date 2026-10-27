@@ -57,6 +57,7 @@ rectangular template as an exact mask.
 Sources:
 
 - [Bulbapedia: Holofoil, patterns, coverage and historical exceptions](https://bulbapedia.bulbagarden.net/wiki/Holofoil)
+- [Bulbapedia: Pokémon ex](https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_ex_(TCG)) and [rarity](https://bulbapedia.bulbagarden.net/wiki/Rarity): double-rare ex classification and artwork extending beyond the illustration window; the whole-card sparkle is a visual approximation, not an exact printing map.
 - [Pokémon TCG API card object](https://docs.pokemontcg.io/api-reference/cards/card-object/): card IDs, sets, rarity, images and price variants; no per-pixel foil-mask field documented.
 - [Simon Goellner's Pokémon Cards CSS project](https://github.com/simeydotme/pokemon-cards-css): reference for the feasibility of layered gradients, blending and transforms. Our renderer and generated textures are original; no source textures or code from that project are bundled.
 
@@ -74,8 +75,18 @@ provide a finish label, but ambiguous labels still require an area selection.
   follow a species into a different printing.
 - Explicit full-art/full-card foil, texture, rainbow, gold or sparkle metadata:
   a broad whole-card approximation, with its source explained in the UI.
-- Ambiguous finish, unmapped regional print, unsupported game or original capture:
-  tilt without speculative coloured foil. Rarity alone is not enough.
+- Saved `holo`, `holofoil`, `holo_foil`, `holographic` or `foil`: an approximate
+  diagonal reflection over an artwork-window template (whole-card for Energy).
+  Older recognized sets use the classic template; other Pokémon use modern, and
+  Trainer cards use the Trainer template. Unknown/empty finish can fall back to
+  the saved suggested printing. An explicit non-holo read still wins.
+- Confirmed holo plus double-rare rarity, or a saved note explicitly identifying
+  a double-rare Pokémon ex: whole-card sparkle with modern layout, labelled as an
+  approximation. Sleeve notes alone do not enable foil. Rarity without a finish
+  still does not enable it. Notes are local metadata and are never executed.
+- Unrecognized finishes, unsupported games or original captures: tilt without
+  coloured foil. Exact masks are never reused across mismatched languages or IDs;
+  a known holo finish can instead use the generic, labelled approximation.
 - A user's visual selection: marked as a user approximation, separate from all
   provider observations, identity, pricing and condition.
 

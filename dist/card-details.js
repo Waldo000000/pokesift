@@ -12,7 +12,8 @@
   function describe(e){
     const c=cardOf(e)||{},read=readOf(e),identity=identityOf(e),selected=chosenPrice(e);
     // The automatic lowest price is NOT evidence of the physical finish.
-    return {name:identity.name,set:identity.set,number:identity.number,language:languageOf(e),game:read.game||'pokemon',stamp:read.stamp||'',finish:selected?.printing||read.finish||c.suggested_printing||'',rarity:c.rarity||'',canonical:!!e.canonicalImage,appearance:F.cleanAppearance(e.visualFinish)};
+    const notes=[c.notes,c.note,read.notes,read.note,e.result?.data?.notes,e.result?.data?.note].flat().filter(n=>typeof n==='string').join(' ').slice(0,2000);
+    return {name:identity.name,set:identity.set,number:identity.number,language:languageOf(e),game:read.game||'pokemon',stamp:read.stamp||'',finish:selected?.printing||read.finish||c.suggested_printing||'',suggestedFinish:c.suggested_printing||'',rarity:c.rarity||'',supertype:c.supertype||'',notes,canonical:!!e.canonicalImage,appearance:F.cleanAppearance(e.visualFinish)};
   }
   function render(e){
     const data=describe(e);data.canonical=data.canonical&&!showCapturedPhoto;
@@ -22,7 +23,10 @@
     fingerprint=key;
     $('detail-tilt').classList.toggle('captured-photo',!data.canonical);
     const appearance=F.cleanAppearance(e.visualFinish);
-    $('visual-finish').value=appearance?.profile||'auto';$('visual-region').value=appearance?.region||'auto';$('visual-layout').value=appearance?.layout||'classic';
+    const automatic=F.resolve({...data,appearance:null});
+    $('visual-finish').querySelector('[value="auto"]').textContent='Use saved card information · '+F.profiles[automatic.profile].label;
+    $('visual-region').querySelector('[value="auto"]').textContent=appearance?'Use finish default':'Finish default · '+F.regions[resolved.region];
+    $('visual-finish').value=appearance?.profile||'auto';$('visual-region').value=appearance?.region||'auto';$('visual-layout').value=appearance?.layout||resolved.layout;
     $('visual-finish').disabled=readOnlyStorage||!data.canonical;
     $('visual-region').disabled=$('visual-layout').disabled=readOnlyStorage||!data.canonical||!appearance;
     $('visual-mask').disabled=!renderer.hasMask;$('visual-mask').setAttribute('aria-pressed',String($('detail-tilt').classList.contains('inspect-foil')));

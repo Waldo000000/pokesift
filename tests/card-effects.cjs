@@ -8,12 +8,18 @@ const printing={name:'Charizard',set:'Base Set 2',number:'004/130',language:'Eng
 assert.equal(F.resolve(printing).profile,'cosmos');
 assert.equal(F.resolve({...printing,finish:'non_holo'}).profile,'matte');
 assert.equal(F.resolve({...printing,finish:'Reverse Holofoil'}).profile,'matte');
-assert.equal(F.resolve({...printing,language:'zh-TW'}).profile,'matte');
-assert.equal(F.resolve({...printing,number:'4/102'}).profile,'matte');
-assert.equal(F.resolve({...printing,set:'Celebrations'}).profile,'matte');
+for(const changed of [{language:'zh-TW'},{number:'4/102'},{set:'Celebrations'}]){const result=F.resolve({...printing,...changed});assert.equal(result.profile,'sheen');assert.equal(result.region,'artwork');assert.equal(result.printing,null,'Approximate holo must not reuse the English printing-specific mask');}
 assert.equal(F.resolve({...printing,canonical:false}).profile,'matte');
 assert.equal(F.resolve({rarity:'Rare Holo VMAX'}).profile,'matte');
 assert.equal(F.resolve({finish:'full-art rainbow holo'}).profile,'rainbow');
+const dondozo={name:'Dondozo',finish:'holo',suggestedFinish:'Holofoil',notes:'Double Rare Pokémon ex card inside a protective sleeve.',canonical:true};
+for(const finish of ['holo','Holofoil','holo_foil','holographic','unknown']){const result=F.resolve({...dondozo,finish});assert.equal(result.profile,'sparkle');assert.equal(result.region,'full');assert.equal(result.layout,'modern');assert.equal(result.source,'metadata');}
+assert.equal(F.resolve({...dondozo,notes:'',rarity:'Double Rare'}).profile,'sparkle');
+assert.equal(F.resolve({...dondozo,notes:'Card inside a protective sleeve.'}).profile,'sheen');
+assert.equal(F.resolve({...dondozo,notes:'Not a double rare Pokémon ex card.'}).profile,'sheen');
+assert.equal(F.resolve({...dondozo,finish:'non_holo'}).profile,'matte','Explicit non-holo overrides notes and suggested printing');
+assert.equal(F.resolve({...dondozo,finish:'',suggestedFinish:''}).profile,'matte','Sleeve/classification notes alone are not finish evidence');
+assert.equal(F.resolve({...dondozo,appearance:{version:1,profile:'matte',region:'auto',layout:'modern'}}).profile,'matte');
 assert.equal(F.cleanAppearance({version:1,profile:'constructor',region:'full',layout:'classic'}),null);
 assert.equal(F.cleanAppearance({version:2,profile:'cosmos',region:'print',layout:'classic'}),null);
 const artScope={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'dist/concepts/art.js'),'utf8'),artScope);
@@ -61,5 +67,19 @@ try{
   const download=page.waitForEvent('download');await page.locator('#export').click();const dl=await download,stream=await dl.createReadStream(),chunks=[];for await(const chunk of stream)chunks.push(chunk);const backup=JSON.parse(Buffer.concat(chunks));assert.deepEqual(backup.entries[0].visualFinish,saved.visualFinish);
   await page.evaluate(()=>{entries=[];save();render();});await page.locator('#backup-file').setInputFiles({name:'foil-backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))});await page.locator('.card-tile').first().waitFor();await page.locator('.card-tile').first().click();assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'sparkle');
   await page.evaluate(()=>{readOnlyStorage=true;renderDetail();});assert(await page.locator('#visual-finish').isDisabled());
-  assert.equal(paid,0);assert.deepEqual(errors,[]);console.log('PASS: 20 foil treatments; print/subject/reverse/full/border masks; conservative metadata; touch and reduced motion; saved corrections; photo fallback; backup restore; renderer cleanup. No provider calls.');
+  // Regression: the user's saved holo + double-rare ex note must activate foil
+  // without an exact silhouette, a manual correction, or a fresh provider call.
+  await page.locator('#close-detail').click();await page.waitForFunction(()=>!document.querySelector('#detail-tilt .foil-pattern'));
+  await page.evaluate(()=>{readOnlyStorage=false;const e=entries[0];delete e.visualFinish;e.result.data.read={game:'pokemon',name:'Dondozo',finish:'holo',notes:'Double Rare Pokémon ex card inside a protective sleeve.'};e.result.data.candidates[0]={name:'Dondozo',set:{name:'Fixture set'},number:'1/100',suggested_printing:'Holofoil',prices:[{printing:'Normal',currency:'USD',market_price:1}]};save();render();});
+  await page.locator('.card-tile').first().click();assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'sparkle');assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-region'),'full');
+  assert(await page.locator('#detail-tilt').evaluate(e=>e.classList.contains('has-foil')));
+  assert.match(await page.locator('#visual-finish option:checked').textContent(),/All-over sparkle/);assert.match(await page.locator('#visual-region option:checked').textContent(),/Whole card/);assert.equal(await page.locator('#visual-layout').inputValue(),'modern');
+  const autoImage=await page.locator('#detail-tilt').screenshot();await page.locator('#detail-tilt').press('ArrowRight');
+  const autoPixels=await page.locator('#detail-tilt .foil-pattern').evaluate(c=>c.toDataURL());await page.locator('#detail-tilt').press('ArrowRight');assert.notEqual(await page.locator('#detail-tilt .foil-pattern').evaluate(c=>c.toDataURL()),autoPixels,'Automatic holo must respond visibly to tilt');
+  await page.locator('#detail-tilt').press('Home');
+  if(!(await page.locator('.foil-settings').evaluate(e=>e.open)))await page.getByText('Card finish & light',{exact:true}).click();
+  await page.locator('#visual-finish').selectOption('matte');assert(!(await page.locator('#detail-tilt').evaluate(e=>e.classList.contains('has-foil'))));assert.notDeepEqual(await page.locator('#detail-tilt').screenshot(),autoImage,'Automatic holo must render differently from no foil');
+  assert.match(await page.locator('#visual-finish option[value="auto"]').textContent(),/All-over sparkle/);await page.locator('#visual-finish').selectOption('auto');
+  assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'sparkle');await page.locator('#close-detail').click();await page.reload();await page.locator('.card-tile').first().click();assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'sparkle','Existing saved entries should work after reload with no rescan');
+  assert.equal(paid,0);assert.deepEqual(errors,[]);console.log('PASS: 20 foil treatments; masks; automatic holo/ex fallback and resolved controls; touch and reduced motion; saved corrections; photo fallback; backup restore; renderer cleanup. No provider calls.');
 }finally{await browser?.close();server.kill();}})().catch(e=>{console.error(e);process.exit(1)});

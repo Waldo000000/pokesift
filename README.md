@@ -218,9 +218,11 @@ The [card playground](https://pokesift-dev.onrender.com/concepts/card-study.html
 compares 20 treatments, including matte, classic holo, reverse, full-card sparkle,
 textured, rainbow, gold, cracked ice, and Poké Ball / Master Ball patterns.
 
-Automatic coverage is deliberately conservative. Only two printing-specific
-silhouette masks are currently supplied; other known whole-card finishes can use
-a broad approximation, and uncertain finishes remain tilt-only until a visual
-choice is made. See [finish research, coverage, exceptions and mask provenance](docs/card-finishes.md)
+Automatic coverage is deliberately conservative. Two printing-specific
+silhouette masks are currently supplied. Saved `holo` / `holofoil` finishes use a
+labelled approximate reflection when no exact map exists; double-rare Pokémon ex
+identification selects whole-card sparkle. Automatic controls show the resolved
+pattern, coverage and layout. Unrecognized finishes remain tilt-only until a
+visual choice is made. See [finish research, coverage, exceptions and mask provenance](docs/card-finishes.md)
 for the distinctions and the process for adding precise maps. Run `npm run test:foil`
 for renderer, mask, persistence and no-credit browser checks.

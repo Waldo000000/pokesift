@@ -35,9 +35,11 @@
     if(data.canonical===false)return {...base,note:'Your photo stays unaltered. Foil is available on catalog images.'};
     if(data.game&&!['pokemon','pokémon'].includes(norm(data.game)))return {...base,note:'No foil mapping for this game.'};
     if(manual){const region=manual.region==='auto'?profiles[manual.profile].region:manual.region;return {...base,...manual,region,source:'user',note:'Your visual setting · approximate simulation. It does not change the card’s identification or price.'};}
-    const finish=norm(data.finish);
-    if(/^(non ?holo(?:foil)?|normal|regular|matte|standard)$/.test(finish))return {...base,source:'metadata',note:'Non-holo finish. No coloured foil.'};
-    if(printing&&(!finish||/^(holo(?:foil)?|holographic|foil)$/.test(finish)))return {...base,profile:printing.profile,region:'print',source:'printing',note:'Printing-specific, hand-drawn mask · approximate '+profiles[printing.profile].label.toLowerCase()+'.'};
+    const supplied=norm(data.finish),suggested=norm(data.suggestedFinish);
+    const finish=['','unknown','unspecified'].includes(supplied)?suggested:supplied;
+    if(/^(non ?holo(?: ?foil)?|normal|regular|matte|standard)$/.test(finish))return {...base,source:'metadata',note:'Non-holo finish. No coloured foil.'};
+    const holo=/^(holo(?: ?foil)?|holographic(?: ?foil)?|foil)$/.test(finish);
+    if(printing&&(!finish||holo))return {...base,profile:printing.profile,region:'print',source:'printing',note:'Printing-specific, hand-drawn mask · approximate '+profiles[printing.profile].label.toLowerCase()+'.'};
     // Exact area and regional variants cannot be recovered from rarity alone.
     // Full-art explicit finish labels are sufficient for a broad visual treatment.
     const full= /full art|full card|all over/.test(finish);
@@ -45,6 +47,16 @@
     if(full&&/gold/.test(finish))profile='gold';else if(full&&/rainbow/.test(finish))profile='rainbow';
     else if(full&&/textur|etch/.test(finish))profile='textured';else if(full&&/spark|glitter/.test(finish))profile='sparkle';else if(full&&/holo|foil|sheen/.test(finish))profile='full-sheen';
     if(profile)return {...base,profile,region:'full',layout:'full-art',source:'metadata',note:'Full-card finish from saved metadata · approximate simulation.'};
+    if(holo){
+      const rarity=norm(data.rarity),notes=norm(data.notes);
+      // The finish confirms foil; classification refines its coverage. A sleeve
+      // description alone is not foil evidence, and rarity alone never enables it.
+      const doubleRare=rarity==='double rare'||(/\bdouble rare (?:pok[eé]mon )?ex\b/.test(notes)&&! /\b(?:not|no|uncertain|possibly|maybe)\b[^.]*\bdouble rare\b/.test(notes));
+      if(doubleRare)return {...base,profile:'sparkle',region:'full',layout:'modern',source:'metadata',note:'Saved holo finish and double-rare Pokémon ex identification · approximate whole-card sparkle. No exact foil mask is available.'};
+      const supertype=norm(data.supertype),set=norm(data.set);
+      const layout=supertype==='energy'?'energy':supertype==='trainer'?'trainer':/^(base set(?: 2)?|base[12]|jungle|fossil|team rocket|gym heroes|gym challenge|neo (?:genesis|discovery|revelation|destiny)|legendary collection)$/.test(set)?'classic':'modern';
+      return {...base,profile:supertype==='energy'?'full-sheen':'sheen',region:supertype==='energy'?'full':'artwork',layout,source:'metadata',note:'Saved holo finish · diagonal reflection over an approximate '+(supertype==='energy'?'whole-card':'artwork-window')+' area. The exact foil mask is not known; adjust the area if needed.'};
+    }
     if(finish)return {...base,note:'Saved finish: '+String(data.finish).slice(0,100)+'. Choose a visual finish and area below; the exact foil map is not known.'};
     return base;
   }
