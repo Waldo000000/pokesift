@@ -1,3 +1,58 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; connect-src 'self'; base-uri 'none'; form-action 'none'"><title>PokéSift · API test</title><link rel="stylesheet" href="style.css"><script src="app.js" defer></script></head>
-<body><main><header><span class="mark">◉</span> PokéSift <small>API TEST</small></header><h1>One card.<br>A closer look.</h1><p class="intro">Test TCG API’s photo identification and market prices.</p><form id="test"><p class="hint">Private access · Your photo is sent to TCG API only when you submit it. PokéSift does not save your photo.</p><label for="photo">Choose one card photo</label><input id="photo" type="file" accept="image/jpeg,image/png,image/webp" required><p class="hint">JPG, PNG or WebP · up to 8 MB · full card front</p><img id="preview" alt="Your selected card photo" hidden><button class="primary" id="run" type="submit">Identify card + get prices <span>↗</span></button><p class="hint">Each submitted photo uses one scan. TCG API advertises 25 free trial scans. No automatic retries.</p></form><p id="status" role="status" aria-live="polite"></p><section id="result" hidden><h2 id="title"></h2><p id="identity"></p><div id="prices"></div><p class="hint">Prices describe the catalog printing, not the condition or authenticity of your physical card. Currency is shown only when the response specifies it.</p><button id="copy" class="secondary" type="button">Copy response</button><details><summary>Full API response</summary><pre id="raw"></pre></details></section><footer>Private experiment · No collection storage<br><a href="https://tcgapi.dev/api/identify/" target="_blank" rel="noreferrer">TCG API documentation ↗</a></footer></main></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f3ed">
+  <meta name="referrer" content="no-referrer">
+  <title>PokéSift · Your collection</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="PokéSift home"><span class="brand-icon" aria-hidden="true">◒</span> PokéSift<span class="brand-dot">.</span></a>
+    <span class="local-pill"><span aria-hidden="true">●</span> ON THIS DEVICE</span>
+  </header>
+  <main id="collection-view">
+    <section class="collection-heading">
+      <div><p class="eyebrow">A LITTLE ORDER. A LOT OF DISCOVERY.</p><h1>Your collection<span>.</span></h1><p class="intro">One card at a time. All in one place.</p></div>
+      <button id="open-camera" class="primary"><span aria-hidden="true">＋</span> Add cards</button>
+    </section>
+    <div id="storage-warning" class="notice warning" role="alert" hidden></div>
+    <div id="activity" class="activity" role="status" aria-live="polite" hidden></div>
+    <section class="collection-tools" aria-label="Collection tools">
+      <div class="tabs" role="group" aria-label="Filter cards"><button class="tab active" data-filter="all" aria-pressed="true">All cards <span id="all-count">0</span></button><button class="tab" data-filter="review" aria-pressed="false">To review <span id="review-count">0</span></button></div>
+      <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find a card…" aria-label="Search collection"></label>
+    </section>
+    <section id="empty" class="empty">
+      <div class="empty-art" aria-hidden="true"><div class="art-card back"></div><div class="art-card front"><span>✦</span><i></i><b>YOUR NEXT FIND</b></div><span class="spark one">✧</span><span class="spark two">✦</span></div>
+      <p class="eyebrow">FROM STACK TO COLLECTION</p><h2>Every card has a story.</h2><p>Start with a photo. We’ll find the card<br>and bring its details into focus.</p><button id="empty-add" class="primary">Scan your first card <span aria-hidden="true">↗</span></button><span class="empty-caption">Keep adding while we identify. No need to wait.</span>
+    </section>
+    <p id="no-results" class="no-results" hidden>No cards found. Try another name or set.</p>
+    <section id="card-grid" class="card-grid" aria-label="Saved cards"></section>
+    <footer class="collection-footer"><button id="fx-refresh" class="text-button fx-button" title="Refresh exchange rates">AUD · loading rates ↻</button><span id="saved-note">Saved in this browser. No cloud sync.</span><button id="export" class="text-button" hidden>Export collection ↗</button></footer>
+  </main>
+  <dialog id="camera-view" class="camera-dialog" aria-labelledby="camera-title">
+    <header class="camera-header"><div><p class="eyebrow">BUILD YOUR COLLECTION</p><h2 id="camera-title">Find your next card.</h2></div><button id="close-camera" class="round-button" aria-label="Close camera and browse collection">✕</button></header>
+    <div class="camera-stage">
+      <video id="camera-video" autoplay muted playsinline aria-label="Live camera preview" hidden></video>
+      <div id="camera-placeholder" class="camera-placeholder"><span class="camera-glyph" aria-hidden="true">▣</span><h3>A closer look.</h3><p id="camera-help">Allow camera access to start capturing,<br>or choose photos from your library.</p><button id="enable-camera" class="light-button">Enable camera</button></div>
+      <div id="viewfinder" class="viewfinder" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><span>One card · Full front · No glare</span></div>
+      <div id="latest-find" class="latest-find" role="status" aria-live="polite" hidden><img id="latest-photo" alt=""><div><span>JUST FOUND</span><strong id="latest-name"></strong><small id="latest-printing"></small></div><div class="latest-value"><strong id="latest-price"></strong><small id="latest-currency"></small></div></div>
+      <div id="capture-flash" class="capture-flash" hidden></div>
+    </div>
+    <div class="camera-controls"><button id="choose-photos" class="camera-side"><span aria-hidden="true">▧</span>Photos</button><button id="shutter" class="shutter" aria-label="Capture card" disabled><span></span></button><button id="camera-done" class="camera-side"><span aria-hidden="true">▦</span>Collection</button></div>
+    <p class="scan-note">Each photo uses one scan. Keep this page open while results arrive.</p>
+    <section class="session-results" aria-label="Recent scans"><div class="session-title"><h3>Coming into focus <span id="session-count">0</span></h3><span id="queue-state">Ready when you are</span></div><p id="session-empty">Capture a card. Its result will land here.</p><div id="result-tray" class="result-tray"></div></section>
+    <input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+  </dialog>
+  <dialog id="detail-view" class="detail-dialog" aria-labelledby="detail-title">
+    <button id="close-detail" class="round-button detail-close" aria-label="Close card details">✕</button>
+    <div class="detail-image"><img id="detail-photo" alt="Photographed card"><span id="detail-badge" class="status-badge"></span><button id="toggle-photo" class="text-button" hidden>View your photo</button></div>
+    <div class="detail-copy"><p id="detail-set" class="eyebrow"></p><h2 id="detail-title"></h2><p id="detail-meta" class="detail-meta"></p><p id="detail-message" class="notice" hidden></p><div id="detail-prices"></div><p id="valuation-note" class="fineprint" hidden>Catalog reference prices, not an appraisal. Your card’s condition, authenticity and finish can change its value.</p><div id="detail-warnings"></div><details id="raw-details"><summary>Identification details</summary><pre id="detail-raw"></pre></details><button id="remove-card" class="text-button danger">Remove from collection</button></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <noscript>This app needs JavaScript to scan and save cards.</noscript>
+</body>
+</html>

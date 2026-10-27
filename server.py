@@ -4,12 +4,15 @@ import hashlib
 import hmac
 import time
 from collections import deque
+import datetime
+import math
 import json
 import os
+import re
 from pathlib import Path
 import ssl
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,6 +43,54 @@ def forward(key, data, mime):
         return response.status, body
 
 
+def fetch_card_image(product_id):
+    # Fixed CDN and numeric product ID only: never proxy arbitrary URLs or keys.
+    if not re.fullmatch(r'[1-9][0-9]{0,9}', product_id):
+        raise ValueError('Invalid product ID')
+    request = urllib.request.Request(
+        f'https://product-images.tcgplayer.com/fit-in/600x600/{product_id}.jpg',
+        headers={'User-Agent': 'PokeSift/0.1', 'Accept': 'image/jpeg,image/png,image/webp'})
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(
+        context=ssl.create_default_context(cafile=os.environ.get('SSL_CERT_FILE'))))
+    with opener.open(request, timeout=15) as response:
+        mime = response.headers.get_content_type()
+        if mime not in ('image/jpeg', 'image/png', 'image/webp'):
+            raise ValueError('Unsupported image')
+        body = response.read(MAX_RESPONSE + 1)
+        if len(body) > MAX_RESPONSE:
+            raise ValueError('Image too large')
+        return body, mime
+
+
+def fetch_exchange_rates():
+    request = urllib.request.Request('https://api.frankfurter.dev/v1/latest?base=AUD',
+        headers={'Accept': 'application/json', 'User-Agent': 'PokeSift/0.1'})
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(
+        context=ssl.create_default_context(cafile=os.environ.get('SSL_CERT_FILE'))))
+    with opener.open(request, timeout=12) as response:
+        body = response.read(65537)
+        if len(body) > 65536:
+            raise ValueError('Rates too large')
+        data = json.loads(body)
+    if data.get('base') != 'AUD':
+        raise ValueError('Unexpected rate base')
+    datetime.date.fromisoformat(data['date'])
+    rates = {code: float(rate) for code, rate in data['rates'].items()
+        if re.fullmatch(r'[A-Z]{3}', code) and isinstance(rate, (float, int)) and math.isfinite(rate) and rate > 0}
+    if not rates:
+        raise ValueError('Missing exchange rates')
+    rates['AUD'] = 1.0
+    return {'base': 'AUD', 'date': data['date'], 'rates': rates,
+        'source': 'Frankfurter / ECB', 'source_url': 'https://frankfurter.dev/',
+        'fetchedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'stale': False}
+
+
 class Handler(BaseHTTPRequestHandler):
     # Do not log URLs, request headers, keys, images, or provider responses.
     def log_message(self, *args):
@@ -52,7 +103,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        self.send_header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
         if challenge:
             self.send_header('WWW-Authenticate', 'Basic realm="PokeSift", charset="UTF-8"')
         if self.server.public_origin:
@@ -100,6 +152,30 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(403, 'Unrecognized host')
         if not self.authorize():
             return
+        target = urlsplit(self.path)
+        if target.path == '/api/exchange-rates':
+            with self.server.fx_lock:
+                if self.server.fx_cache and time.monotonic() - self.server.fx_cached_at < 6 * 3600:
+                    return self.send(200, json.dumps(self.server.fx_cache).encode())
+                try:
+                    rates = self.server.exchange_rates()
+                    self.server.fx_cache = rates
+                    self.server.fx_cached_at = time.monotonic()
+                except Exception:
+                    if self.server.fx_cache:
+                        return self.send(200, json.dumps({**self.server.fx_cache, 'stale': True}).encode())
+                    return self.error(503, 'AUD exchange rates are temporarily unavailable')
+                return self.send(200, json.dumps(rates).encode())
+        if target.path == '/api/card-image':
+            query = parse_qs(target.query)
+            product_id = query.get('id', [''])[0]
+            if set(query) != {'id'} or len(query['id']) != 1 or not re.fullmatch(r'[1-9][0-9]{0,9}', product_id):
+                return self.error(400, 'Invalid product ID')
+            try:
+                body, mime = self.server.card_image(product_id)
+            except Exception:
+                return self.error(502, 'Catalog image unavailable')
+            return self.send(200, body, mime)
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
         if self.path not in files:
             return self.error(404, 'Not found')
@@ -199,6 +275,11 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     server = BoundedServer((bind, port), Handler)
     server.public_origin = public_origin
     server.forward = forward_request
+    server.card_image = fetch_card_image
+    server.exchange_rates = fetch_exchange_rates
+    server.fx_cache = None
+    server.fx_cached_at = 0
+    server.fx_lock = threading.Lock()
     server.api_key = os.environ.get('TCGAPI_KEY', '').strip()
     server.app_password = os.environ.get('POKESIFT_PASSWORD', '')
     server.scan_times = deque()

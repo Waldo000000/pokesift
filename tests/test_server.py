@@ -3,7 +3,7 @@ import http.client
 import json
 import threading
 import unittest
-from server import make_server, forward
+from server import make_server, forward, fetch_card_image
 from unittest.mock import patch, MagicMock
 
 PASSWORD = 'test-app-password-1234'
@@ -137,6 +137,50 @@ class ServerTests(unittest.TestCase):
         conn.close()
         self.assertEqual(self.calls, [])
 
+    def test_exchange_rates_are_authenticated_cached_and_fall_back(self):
+        rates = {'base': 'AUD', 'date': '2026-10-26', 'rates': {'USD': 0.7, 'AUD': 1}, 'stale': False}
+        self.server.exchange_rates = MagicMock(return_value=rates)
+        def request(auth):
+            conn = http.client.HTTPConnection(self.host, timeout=5)
+            conn.request('GET', '/api/exchange-rates', headers={'Authorization': auth})
+            r = conn.getresponse()
+            result = r.status, json.loads(r.read())
+            conn.close()
+            return result
+        self.assertEqual(request('')[0], 401)
+        self.server.exchange_rates.assert_not_called()
+        self.assertEqual(request(AUTH), (200, rates))
+        self.assertEqual(request(AUTH), (200, rates))
+        self.server.exchange_rates.assert_called_once()
+        self.server.fx_cached_at = -999999
+        self.server.exchange_rates.side_effect = OSError('Offline')
+        status, result = request(AUTH)
+        self.assertEqual(status, 200)
+        self.assertTrue(result['stale'])
+        self.assertEqual(result['rates'], rates['rates'])
+        self.server.fx_cache = None
+        self.assertEqual(request(AUTH)[0], 503)
+
+    def test_catalog_image_requires_auth(self):
+        conn = http.client.HTTPConnection(self.host, timeout=5)
+        conn.request('GET', '/api/card-image?id=12345')
+        r = conn.getresponse()
+        self.assertEqual(r.status, 401)
+        r.read()
+        conn.close()
+
+    def test_catalog_image_never_accepts_arbitrary_urls(self):
+        self.server.card_image = MagicMock(return_value=(PNG, 'image/png'))
+        for query, expected in [('id=12345', 200), ('id=https://evil.example', 400), ('id=12345&url=x', 400), ('id=0', 400)]:
+            conn = http.client.HTTPConnection(self.host, timeout=5)
+            conn.request('GET', '/api/card-image?' + query, headers={'Authorization': AUTH})
+            r = conn.getresponse()
+            self.assertEqual(r.status, expected)
+            r.read()
+            conn.close()
+        self.server.card_image.assert_called_once_with('12345')
+        self.assertEqual(self.calls, [])
+
     def test_non_json_is_safe_error(self):
         self.reply = (200, b'<html>test-key</html>')
         status, body, _ = self.request()
@@ -144,6 +188,20 @@ class ServerTests(unittest.TestCase):
         self.assertNotIn(b'test-key', body)
 
 class ProviderRequestTests(unittest.TestCase):
+    def test_catalog_request_has_no_provider_credentials(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.headers.get_content_type.return_value = 'image/png'
+        response.read.return_value = PNG
+        with patch('server.urllib.request.build_opener') as build:
+            build.return_value.open.return_value = response
+            body, mime = fetch_card_image('12345')
+            request = build.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url, 'https://product-images.tcgplayer.com/fit-in/600x600/12345.jpg')
+            self.assertIsNone(request.get_header('X-api-key'))
+            self.assertIsNone(request.get_header('Authorization'))
+            self.assertEqual((body, mime), (PNG, 'image/png'))
+
     def test_application_identification_and_json_negotiation(self):
         response = MagicMock()
         response.__enter__.return_value = response

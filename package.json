@@ -1,0 +1,12 @@
+{
+  "name": "pokesift",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test:browser": "node tests/browser.cjs",
+    "check": "node --check dist/app.js"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
