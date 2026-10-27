@@ -6,3 +6,4 @@ body:not([data-auth="signed-in"]) #collection-view,body:not([data-auth="signed-i
 .detail-image .image-note{font-size:9px;margin:0;text-align:center}.price-row strong{font-size:20px}.latest-value strong{font-size:18px}
 
 .price-basis{display:block;margin-top:5px;font-size:9px;color:var(--muted)}.valuation-choice-group{margin:20px 0}.valuation-choice-group label{display:block;font-size:12px;font-weight:650;margin-bottom:8px}.valuation-choice-group select{font:inherit;font-size:14px;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:12px;width:100%;min-width:0}.valuation-choice-group select:focus-visible{outline:3px solid #97ab54;outline-offset:3px}
+@media(max-width:640px){.camera-stage{min-height:150px;max-height:min(43dvh,calc(100dvh - 450px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))}}
