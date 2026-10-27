@@ -271,10 +271,9 @@ async function preparePhoto(file) {
 }
 let pendingPreparation = 0;
 function addFiles(files) {
-  let accepted = 0;
   for (const file of files) {
     if (pendingPreparation + jobs.length + active >= 20) { notify('The queue is full. Let a few cards finish before adding more.'); break; }
-    pendingPreparation++; accepted++;
+    pendingPreparation++;
     preparing = preparing.then(async() => {
       try {
         const {blob,thumbnail} = await preparePhoto(file);
@@ -286,7 +285,6 @@ function addFiles(files) {
       finally { pendingPreparation--; }
     });
   }
-  if (accepted) notify(`${accepted === 1 ? 'Photo added' : accepted+' photos added'}. Keep going — we’ll find the details.`);
 }
 function showLatestFind(e) {
   if (!$('camera-view').open || !['matched','unsupported','not_found','ambiguous'].includes(e.status)) return;
