@@ -18,7 +18,7 @@ function render(){
  $('hero-title').innerHTML=theme==='zoo'?'A little world.<br><em>Your kind of wild.</em>':theme==='desk'?'Big finds.<br><em>Good company.</em>':'Good cards.<br><em>Great company.</em>';
  $('hero-copy').textContent=theme==='zoo'?'A home for every Pokémon you’ve collected.':theme==='desk'?'Your favourite cards deserve more than a spreadsheet.':'A little order. A lot of “look what I found”.';
  $('card-heading').textContent=theme==='desk'?'Go on. Have a sift.':'Crack open your binder.';
- $('binder-layout').hidden=theme==='desk';$('desk-layout').hidden=theme!=='desk';$('sticker-art').src=art['pokemon-25'];$('dex-hero-one').src=art['pokemon-25'];$('dex-hero-two').src=art['pokemon-151'];
+ $('binder-layout').hidden=theme==='desk';$('desk-layout').hidden=theme!=='desk';if($('sticker-art'))$('sticker-art').src=art['pokemon-25'];$('dex-hero-one').src=art['pokemon-25'];$('dex-hero-two').src=art['pokemon-151'];
  paintTypes($('card-filters'),filter,v=>{filter=v;page=0;index=0;render();});paintTypes($('dex-filters'),dexFilter,v=>{dexFilter=v;renderDex();});
  renderCards();renderDex();
 }

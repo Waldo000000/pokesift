@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "test:browser": "node tests/browser.cjs",
-    "check": "node --check dist/app.js"
+    "check": "node --check dist/app.js",
+    "test:concepts": "node tests/concepts.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"
