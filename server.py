@@ -206,6 +206,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self.valid_host():
             return self.error(403, 'Unrecognized host')
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/auth.js': ('auth.js', 'text/javascript'), '/photo-store.js': ('photo-store.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
+        # Public, static design samples. These use demo data and never call providers.
+        files.update({f'/concepts/{name}.html': (f'concepts/{name}.html', 'text/html; charset=utf-8') for name in ('binder', 'desk', 'zoo')})
+        files.update({f'/concepts/{name}': (f'concepts/{name}', mime) for name, mime in [('concepts.css', 'text/css'), ('concepts.js', 'text/javascript'), ('art.js', 'text/javascript')]})
         if self.path in files:
             name, mime = files[self.path]
             return self.send(200, (ROOT / name).read_bytes(), mime)
