@@ -373,6 +373,25 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await rr.goto(`http://127.0.0.1:${port}`);await rr.locator('#backup-file').setInputFiles({name:'retake.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(retakeBackup))});
   await waitFor(()=>rr.locator('.card-tile').count().then(n=>n===1));
   assert(await rr.evaluate(async id=>Boolean(await PokeSiftPhotos.get(id)),retaken.scanHistory[0].id));
+  // Removal confirms inline; cancel, Escape and closing details must keep the card.
+  let removalDialogs=0;rr.on('dialog',()=>removalDialogs++);
+  await rr.locator('.card-tile').click();await rr.locator('#remove-card').click();
+  assert(await rr.locator('#remove-confirmation').isVisible());assert.equal(await rr.evaluate(()=>document.activeElement.id),'keep-card');
+  assert.equal(await rr.locator('.card-tile').count(),1);
+  await rr.locator('#keep-card').click();assert(await rr.locator('#remove-confirmation').isHidden());
+  await rr.locator('#remove-card').click();await rr.keyboard.press('Escape');
+  assert(await rr.locator('#detail-view').isVisible());assert(await rr.locator('#remove-confirmation').isHidden());
+  await rr.locator('#remove-card').click();await rr.locator('#close-detail').click();await rr.locator('.card-tile').click();
+  assert(await rr.locator('#remove-confirmation').isHidden());
+  await rr.locator('#remove-card').click();
+  await rr.evaluate(()=>{window.originalStorageWrite=Storage.prototype.setItem;Storage.prototype.setItem=()=>{throw new DOMException('Full','QuotaExceededError');};});
+  await rr.locator('#confirm-remove-card').click();assert(await rr.locator('#remove-error').isVisible());
+  assert.equal(await rr.locator('.card-tile').count(),1);assert(await rr.evaluate(async id=>Boolean(await PokeSiftPhotos.get(id)),retaken.id));
+  await rr.evaluate(()=>{Storage.prototype.setItem=window.originalStorageWrite;});
+  await rr.locator('#confirm-remove-card').click();assert.equal(await rr.locator('.card-tile').count(),0);
+  await waitFor(()=>rr.evaluate(async ids=>(await Promise.all(ids.map(id=>PokeSiftPhotos.get(id)))).every(blob=>!blob),[retaken.id,retaken.scanHistory[0].id]));
+  assert.equal(removalDialogs,0,'Removing a card must never open a browser confirmation');
+  await rr.reload();assert.equal(await rr.locator('.card-tile').count(),0);
   await restoredRetake.close();
   const [bulk,bp]=await setupBulk([bulkEntry(1),bulkEntry(2,bulkId(1)),bulkEntry(3),bulkEntry(4),{...saved[0],id:'unconfirmed-no-price',status:'unsupported'}]);
   let bulkCalls=[],unexpectedBulk=0;

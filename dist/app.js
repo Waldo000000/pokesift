@@ -13,6 +13,7 @@ let priceBatch = {running:false,message:''};
 let retakeId=null, retakePreparing=false, unsavedCollection=false;
 let cameraZoom=1;
 const CARD_ASPECT=63/88;
+let pendingRemovalId=null;
 
 function notify(message) {
   const toast = $('toast');
@@ -249,7 +250,7 @@ function renderDetail() {
   for (const warning of Array.isArray(payload?.warnings) ? payload.warnings : []) $('detail-warnings').append(element('p','notice',String(warning)));
   $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,scanHistory:e.scanHistory || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
   $('raw-details').hidden = busyStates.has(e.status);
-  $('remove-card').disabled = busyStates.has(e.status);
+  renderRemoval(e);
 }
 $('valuation-choice').onchange = event => {
   const e = entries.find(e => e.id === focusedId); if (!e) return;
@@ -257,16 +258,40 @@ $('valuation-choice').onchange = event => {
   else delete e.selectedPriceKey;
   save(); render();
 };
-function openDetail(id) { focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) $('detail-view').showModal(); }
+function openDetail(id) { pendingRemovalId=null;focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) $('detail-view').showModal(); }
 $('toggle-photo').onclick = () => { showCapturedPhoto = !showCapturedPhoto; renderDetail(); };
 $('close-detail').onclick = () => $('detail-view').close();
-$('detail-view').addEventListener('close',() => { focusedId = null; });
+$('detail-view').addEventListener('close',() => { focusedId = null;pendingRemovalId=null; });
+function renderRemoval(entry) {
+  const confirming=pendingRemovalId===entry.id;
+  $('remove-card').hidden=confirming;
+  $('remove-card').disabled=busyStates.has(entry.status) || readOnlyStorage;
+  $('remove-card').setAttribute('aria-expanded',String(confirming));
+  $('remove-confirmation').hidden=!confirming;
+  $('remove-confirm-title').textContent='Remove '+titleOf(entry)+'?';
+  $('confirm-remove-card').disabled=busyStates.has(entry.status) || readOnlyStorage;
+}
+function cancelRemoval() {
+  pendingRemovalId=null;
+  const entry=entries.find(e=>e.id===focusedId);if(entry)renderRemoval(entry);
+  $('remove-card').focus();
+}
+$('keep-card').onclick=cancelRemoval;
+$('detail-view').addEventListener('cancel',event=>{if(pendingRemovalId){event.preventDefault();cancelRemoval();}});
 $('remove-card').onclick = () => {
-  const entry = entries.find(e => e.id === focusedId); if (!entry || busyStates.has(entry.status)) return;
-  if (!confirm('Remove this card from this device’s collection?')) return;
-  const removed=entries.find(e=>e.id===focusedId);
-  for(const id of [focusedId,...(removed?.scanHistory || []).map(h=>h.id)])PokeSiftPhotos.remove(id);
-  entries = entries.filter(e => e.id !== focusedId); $('detail-view').close(); save(); render(); notify('Card removed.');
+  const entry=entries.find(e=>e.id===focusedId);if(!entry || busyStates.has(entry.status) || readOnlyStorage)return;
+  pendingRemovalId=entry.id;$('remove-error').hidden=true;renderRemoval(entry);
+  $('remove-confirmation').scrollIntoView({block:'nearest'});$('keep-card').focus({preventScroll:true});
+};
+$('confirm-remove-card').onclick=()=>{
+  const entry=entries.find(e=>e.id===pendingRemovalId);
+  if(!entry || entry.id!==focusedId || busyStates.has(entry.status) || readOnlyStorage)return;
+  const previous=entries;entries=entries.filter(e=>e.id!==entry.id);
+  if(!save()) {
+    entries=previous;$('remove-error').textContent='Could not save this change. Your card and photos have been kept. Please try again.';$('remove-error').hidden=false;return;
+  }
+  for(const id of [entry.id,...(entry.scanHistory || []).map(h=>h.id)])PokeSiftPhotos.remove(id);
+  pendingRemovalId=null;$('detail-view').close();render();notify('Card removed.');
 };
 
 async function preparePhoto(file) {
