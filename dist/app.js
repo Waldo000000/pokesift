@@ -45,21 +45,44 @@ function normalizeResult(result) {
   }
   return result;
 }
+function retainHistoricalEvidence(e) {
+  if (e.result && !Array.isArray(e.providerObservations)) e.providerObservations=[{provider:'tcgapi',snapshotKind:'previously_saved_result',recordedAt:e.createdAt || null,response:structuredClone(e.result)}];
+  return e;
+}
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const stored = JSON.parse(raw);
     if (stored.version !== 1 || !Array.isArray(stored.entries) || stored.entries.some(e => !e || typeof e.id !== 'string' || typeof e.status !== 'string' || (!/^data:image\/(jpeg|png|webp);base64,/.test(e.thumbnail || '') || (e.canonicalImage && !/^data:image\/(jpeg|png|webp);base64,/.test(e.canonicalImage))))) throw new Error();
-    entries = stored.entries.map(e => ({...e, result: normalizeResult(e.result)})).map(e => ({...e, currencyAssumed: Boolean(e.result?.data?.candidates?.some(c => c.prices?.some(p => p.currency_assumed)))})).map(e => busyStates.has(e.status) ? {...e, status: 'interrupted', message: 'The page closed before this result arrived. A scan may have been used. Check your provider balance before taking another photo.'} : e);
+    entries = stored.entries.map(retainHistoricalEvidence).map(e => ({...e, result: normalizeResult(e.result)})).map(e => ({...e, currencyAssumed: Boolean(e.result?.data?.candidates?.some(c => c.prices?.some(p => p.currency_assumed)))})).map(e => busyStates.has(e.status) ? {...e, status: 'interrupted', message: 'The page closed before this result arrived. A scan may have been used. Check your provider balance before taking another photo.'} : e);
   } catch {
     readOnlyStorage = true;
     storageWarning('Saved collection could not be opened. Existing storage has been left untouched. New cards stay in memory; export them before leaving.');
   }
 }
 const cardOf = e => e.result?.data?.candidates?.[0];
-const titleOf = e => cardOf(e)?.name || (busyStates.has(e.status) ? 'Finding your card…' : e.status === 'retake' ? 'A clearer photo needed' : 'Card to review');
-const statusOf = e => ({preparing:'Preparing photo',queued:'In the queue',scanning:'Identifying…',matched:'Identified',ambiguous:'Check the match',retake:'Retake suggested',not_found:'No match found',unsupported:'Not supported',error:'Scan failed',interrupted:'Scan interrupted'}[e.status] || 'To review');
+const readOf = e => e.result?.data?.read || {};
+function identityOf(e) {
+  const card = cardOf(e) || {}, read = readOf(e);
+  return e.status === 'matched'
+    ? {name:card.name || read.name, number:card.number || read.number, set:card.set?.name || read.set}
+    : {name:read.name || card.name, number:read.number || card.number, set:read.set || card.set?.name};
+}
+const titleOf = e => identityOf(e).name || (busyStates.has(e.status) ? 'Finding your card…' : e.status === 'retake' ? 'A clearer photo needed' : 'Saved card');
+const statusOf = e => ({preparing:'Preparing photo',queued:'In the queue',scanning:'Identifying…',matched:'Identified',ambiguous:'Check the match',retake:'Retake suggested',not_found:'Saved from photo',unsupported:'Saved from photo',error:'Scan failed',interrupted:'Scan interrupted'}[e.status] || 'To review');
+function languageOf(e) {
+  const language = readOf(e).language;
+  if (!language) return '';
+  if (language === 'other') return 'Language not identified';
+  return language.replace(/_/g,' ').replace(/^./,letter=>letter.toUpperCase());
+}
+function valueLabel(e) {
+  const price = mainPrice(e);
+  if (price) return priceText(price);
+  if (busyStates.has(e.status)) return '';
+  return e.status === 'matched' && cardOf(e)?.prices?.length > 1 ? 'View printing values' : 'Value unknown';
+}
 function element(tag, className, text) {
   const el = document.createElement(tag); if (className) el.className = className;
   if (text !== undefined) el.textContent = text;
@@ -78,7 +101,7 @@ function audAmount(price) {
   return typeof rate === 'number' && Number.isFinite(rate) && rate > 0 ? Number(price.market_price) / rate : null;
 }
 function priceText(price) {
-  if (price?.market_price == null || !Number.isFinite(Number(price.market_price)) || Number(price.market_price) <= 0) return 'No market price';
+  if (price?.market_price == null || !Number.isFinite(Number(price.market_price)) || Number(price.market_price) <= 0) return 'Value unknown';
   const amount = audAmount(price);
   return amount === null ? 'AUD unavailable' : 'A$' + amount.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 }
@@ -106,6 +129,9 @@ function mainPrice(e) {
 function render() {
   const inProgress = entries.filter(e => busyStates.has(e.status)).length;
   $('fx-refresh').textContent = fxLabel() + ' ↻'; $('fx-refresh').disabled = fxLoading;
+  const transientPhotos = entries.some(e => e.scanPhoto && !e.scanPhoto.persisted);
+  $('photo-storage-warning').hidden = !transientPhotos;
+  $('photo-storage-warning').textContent = 'Some scan-quality photos could not be saved on this device. Back up your collection before closing this page to keep them for future recognition services.';
   $('all-count').textContent = entries.length;
   $('review-count').textContent = entries.filter(e => reviewStates.has(e.status)).length;
   $('activity').hidden = !inProgress;
@@ -113,7 +139,7 @@ function render() {
   $('empty').hidden = entries.length > 0;
   $('export').hidden = entries.length === 0;
   const query = $('search').value.trim().toLowerCase();
-  const shown = entries.filter(e => (filter !== 'review' || reviewStates.has(e.status)) && (!query || [titleOf(e),cardOf(e)?.number,cardOf(e)?.set?.name,cardOf(e)?.rarity].filter(Boolean).join(' ').toLowerCase().includes(query)));
+  const shown = entries.filter(e => (filter !== 'review' || reviewStates.has(e.status)) && (!query || [titleOf(e),identityOf(e).number,identityOf(e).set,cardOf(e)?.rarity,languageOf(e)].filter(Boolean).join(' ').toLowerCase().includes(query)));
   $('no-results').hidden = entries.length === 0 || shown.length !== 0;
   // Preserve keyboard focus when background results rebuild the grid/tray.
   const focus = document.activeElement?.dataset?.entry;
@@ -122,10 +148,10 @@ function render() {
   for (const e of shown) {
     const button = element('button','card-tile'); button.dataset.entry = e.id; button.setAttribute('aria-label', `${titleOf(e)}, ${statusOf(e)}`);
     const photo = element('div','card-image'); photo.append(imageOf(e),badge(e)); button.append(photo);
-    button.append(element('h3','',titleOf(e)),element('p','card-sub',cardOf(e)?.set?.name || statusOf(e)));
+    button.append(element('h3','',titleOf(e)),element('p','card-sub',identityOf(e).set || statusOf(e)));
     const bottom = element('div','card-bottom'), price = mainPrice(e);
-    const value = element('span','card-price',price ? priceText(price) : e.status === 'matched' ? 'View details' : '');
-    bottom.append(value,element('span','card-number',cardOf(e)?.number || '')); button.append(bottom);
+    const value = element('span','card-price',valueLabel(e));
+    bottom.append(value,element('span','card-number',identityOf(e).number || '')); button.append(bottom);
     button.addEventListener('click',() => openDetail(e.id)); grid.append(button);
   }
   const recent = entries.filter(e => sessionIds.has(e.id));
@@ -139,25 +165,26 @@ function render() {
     const price = mainPrice(e);
     if (price && Number(price.market_price) > 0) {
       button.append(element('strong','tray-value',priceText(price)),element('small','',fxFailed || fx?.stale ? 'AUD · cached rate' : 'Est. market value'));
-    } else { button.append(element('small','',statusOf(e))); }
+    } else { button.append(element('small','',valueLabel(e) || statusOf(e))); }
     button.addEventListener('click',() => openDetail(e.id)); tray.append(button);
   }
   tray.scrollLeft = scroll;
   if (focus && focusHost) [...($(focusHost)?.children || [])].find(node => node.dataset.entry === focus)?.focus({preventScroll:true});
   if ($('detail-view').open && focusedId) renderDetail();
   const latest = entries.find(e => e.id === $('latest-find').dataset.entry);
-  if (latest && !$('latest-find').hidden) { const p = mainPrice(latest); $('latest-price').textContent = p ? priceText(p) : 'Identified'; $('latest-currency').textContent = p ? fxLabel() : 'Tap below for details'; }
+  if (latest && !$('latest-find').hidden) { const p = mainPrice(latest); $('latest-price').textContent = valueLabel(latest); $('latest-currency').textContent = p ? fxLabel() : 'Tap below for details'; }
 }
 function renderDetail() {
   const e = entries.find(e => e.id === focusedId); if (!e) return;
   const card = cardOf(e), payload = e.result?.data;
   $('detail-photo').src = showCapturedPhoto ? e.thumbnail : e.canonicalImage || e.thumbnail;
   $('toggle-photo').hidden = !e.canonicalImage; $('toggle-photo').textContent = showCapturedPhoto ? 'View catalog image' : 'View your photo'; $('detail-photo').alt = titleOf(e);
+  $('detail-image-note').textContent = e.canonicalImage && !showCapturedPhoto ? 'Catalog image · TCGPlayer' : e.status === 'matched' ? 'Your photo' : 'Your photo · no verified catalog image';
   $('detail-badge').textContent = statusOf(e);
   $('detail-title').textContent = titleOf(e);
-  $('detail-set').textContent = card?.set?.name || 'YOUR CAPTURE';
-  $('detail-meta').textContent = [card?.number,card?.rarity,card?.suggested_printing,payload?.read?.language].filter(Boolean).join(' · ');
-  const message = e.message || payload?.message || (busyStates.has(e.status) ? 'Your result will appear here. Feel free to keep adding cards.' : e.status !== 'matched' ? 'This identification is not confirmed. Review the candidates below before using a price.' : '');
+  $('detail-set').textContent = identityOf(e).set || 'YOUR CAPTURE';
+  $('detail-meta').textContent = [identityOf(e).number,card?.rarity,card?.suggested_printing || readOf(e).finish,readOf(e).stamp,languageOf(e)].filter(Boolean).join(' · ');
+  const message = e.status === 'unsupported' ? 'This printing is outside the current pricing catalog. Your photo and the details read from it are saved. Its value is unknown; we haven’t substituted a price from another language.' : e.message || payload?.message || (busyStates.has(e.status) ? 'Your result will appear here. Feel free to keep adding cards.' : e.status !== 'matched' ? 'This identification is not confirmed. Review the candidates below before using a price.' : '');
   $('detail-message').textContent = message; $('detail-message').hidden = !message;
   const prices = $('detail-prices'); prices.replaceChildren();
   const rows = e.status === 'matched' && Array.isArray(card?.prices) ? card.prices : [];
@@ -168,11 +195,16 @@ function renderDetail() {
     row.append(top,element('small','',[`Original quote: ${p.market_price ?? '—'} ${currencyOf(p)}${p.currency_assumed ? ' (currency assumed)' : ''}`,`Condition: ${p.condition || 'unspecified'}`,`Source: ${p.source || 'TCGPlayer via TCG API'}`,date ? `Price updated ${new Date(date).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'})}` : 'Price date unspecified', currencyOf(p) === 'AUD' ? 'No conversion needed' : fx?.rates?.[currencyOf(p)] ? `1 ${currencyOf(p)} = A$${(1/fx.rates[currencyOf(p)]).toFixed(4)} · ${fx.source} · ${fx.date}${fxFailed || fx.stale ? ' (cached rate)' : ''}` : 'AUD conversion unavailable'].join(' · ')));
     prices.append(row);
   }
-  if (e.status === 'matched' && !rows.length) prices.append(element('p','notice','No market price was returned for this card.'));
+  if (!rows.length && !busyStates.has(e.status)) {
+    const row = element('div','price-row'), top = element('div');
+    top.append(element('span','','Valuation'),element('strong','','Unknown'));
+    row.append(top,element('small','',e.status === 'matched' ? 'No price was returned for this printing.' : 'No verified price for this exact printing. Unknown does not mean worthless.'));
+    prices.append(row);
+  }
   $('valuation-note').hidden = !rows.length;
   $('detail-warnings').replaceChildren();
   for (const warning of Array.isArray(payload?.warnings) ? payload.warnings : []) $('detail-warnings').append(element('p','notice',String(warning)));
-  $('detail-raw').textContent = JSON.stringify(e.result || {status:e.status,message:e.message},null,2);
+  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
   $('raw-details').hidden = busyStates.has(e.status);
   $('remove-card').disabled = busyStates.has(e.status);
 }
@@ -183,6 +215,7 @@ $('detail-view').addEventListener('close',() => { focusedId = null; });
 $('remove-card').onclick = () => {
   const entry = entries.find(e => e.id === focusedId); if (!entry || busyStates.has(entry.status)) return;
   if (!confirm('Remove this card from this device’s collection?')) return;
+  PokeSiftPhotos.remove(focusedId);
   entries = entries.filter(e => e.id !== focusedId); $('detail-view').close(); save(); render(); notify('Card removed.');
 };
 
@@ -213,6 +246,8 @@ function addFiles(files) {
       try {
         const {blob,thumbnail} = await preparePhoto(file);
         const e = {id:crypto.randomUUID(),createdAt:new Date().toISOString(),status:'queued',thumbnail};
+        const persisted = await PokeSiftPhotos.put(e.id,blob);
+        e.scanPhoto = {id:e.id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted};
         entries.unshift(e); sessionIds.add(e.id); jobs.push({id:e.id,blob}); save(); render(); pump();
       } catch(error) { notify(error.message || 'That photo could not be opened. Try a different image.'); }
       finally { pendingPreparation--; }
@@ -221,12 +256,13 @@ function addFiles(files) {
   if (accepted) notify(`${accepted === 1 ? 'Photo added' : accepted+' photos added'}. Keep going — we’ll find the details.`);
 }
 function showLatestFind(e) {
-  if (!$('camera-view').open || e.status !== 'matched') return;
+  if (!$('camera-view').open || !['matched','unsupported','not_found','ambiguous'].includes(e.status)) return;
   const price = mainPrice(e);
   $('latest-photo').src = e.canonicalImage || e.thumbnail;
   $('latest-name').textContent = titleOf(e);
-  $('latest-printing').textContent = cardOf(e)?.suggested_printing || 'Card identified';
-  $('latest-price').textContent = price ? priceText(price) : 'Identified';
+  $('latest-heading').textContent = e.status === 'matched' ? 'JUST FOUND' : 'SAVED FROM PHOTO';
+  $('latest-printing').textContent = cardOf(e)?.suggested_printing || identityOf(e).number || statusOf(e);
+  $('latest-price').textContent = valueLabel(e);
   $('latest-currency').textContent = price ? fxLabel() : 'Tap below for details';
   const banner = $('latest-find'); banner.dataset.entry = e.id; banner.hidden = false;
   banner.classList.remove('arrived'); void banner.offsetWidth; banner.classList.add('arrived');
@@ -264,6 +300,7 @@ async function runJob({id,blob}) {
     try { result = await response.json(); } catch { throw new Error('The server returned an unreadable response. A scan may have been used. No retry was made.'); }
     if (!response.ok) throw new Error(result?.error?.message || `The server returned HTTP ${response.status}. No retry was made.`);
     if (!['matched','ambiguous','retake','not_found','unsupported'].includes(result?.data?.status)) throw new Error('The provider returned an unexpected result. A scan may have been used. No retry was made.');
+    e.providerObservations = [...(e.providerObservations || []),{provider:'tcgapi',operation:'identify',receivedAt:new Date().toISOString(),snapshotKind:'provider_response',parameters:{game:'pokemon',include:'prices'},response:structuredClone(result)}];
     e.result = normalizeResult(result); e.currencyAssumed = Boolean(e.result.data.candidates?.some(c => c.prices?.some(p => p.currency_assumed))); e.status = result.data.status;
     showLatestFind(e);
     cacheCanonicalImage(e);
@@ -316,21 +353,36 @@ for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => {
   for (const item of document.querySelectorAll('.tab')) { item.classList.toggle('active',item === tab); item.setAttribute('aria-pressed',String(item === tab)); }
   render();
 };
-$('export').onclick = () => {
-  const blob = new Blob([JSON.stringify({format:'pokesift-backup',backupVersion:1,version:1,exportedAt:new Date().toISOString(),entries,exchangeRates:fx},null,2)],{type:'application/json'});
-  const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = 'pokesift-collection.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
+$('export').onclick = async() => {
+  const button=$('export');button.disabled=true;button.textContent='Preparing backup…';
+  try {
+    const snapshot=structuredClone(entries), scanImages=Object.create(null), missingScanImages=[];
+    for(const e of snapshot) {
+      const source=await PokeSiftPhotos.get(e.id);
+      if(source)scanImages[e.id]=await PokeSiftPhotos.dataURL(source);
+      else if(e.scanPhoto)missingScanImages.push(e.id);
+    }
+    const backup={format:'pokesift-backup',backupVersion:2,version:1,exportedAt:new Date().toISOString(),entries:snapshot,scanImages,missingScanImages,exchangeRates:fx};
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pokesift-collection.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    if(missingScanImages.length)notify(`${missingScanImages.length} scan photos were unavailable. Their saved thumbnails and card details are included.`);
+  }catch{notify('Backup could not be created. Keep this page open and try again.');}
+  finally{button.disabled=false;button.textContent='Back up collection ↗';}
 };
 function validateBackup(value) {
-  if (!value || value.version !== 1 || (value.backupVersion !== undefined && value.backupVersion !== 1) || !Array.isArray(value.entries) || value.entries.length > 1000) throw new Error('Unsupported or oversized backup. Choose a PokéSift JSON backup.');
+  if (!value || value.version !== 1 || (value.backupVersion !== undefined && ![1,2].includes(value.backupVersion)) || !Array.isArray(value.entries) || value.entries.length > 1000) throw new Error('Unsupported or oversized backup. Choose a PokéSift JSON backup.');
   const statuses = new Set([...busyStates,...reviewStates,'matched']);
   const imageOK = image => typeof image === 'string' && image.length <= 2*1024*1024 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image);
   for (const e of value.entries) {
-    if (!e || typeof e.id !== 'string' || !e.id.length || e.id.length > 100 || !statuses.has(e.status) || !imageOK(e.thumbnail) || (e.canonicalImage && !imageOK(e.canonicalImage))) throw new Error('This backup contains an invalid card entry. Nothing was imported.');
+    if (!e || typeof e.id !== 'string' || !e.id.length || e.id.length > 100 || ['__proto__','constructor','prototype'].includes(e.id) || !statuses.has(e.status) || !imageOK(e.thumbnail) || (e.canonicalImage && !imageOK(e.canonicalImage))) throw new Error('This backup contains an invalid card entry. Nothing was imported.');
     if (e.result) {
       const candidates=e.result.data?.candidates ?? [];
       if (!e.result.data || typeof e.result.data !== 'object' || !Array.isArray(candidates) || candidates.length > 20 || candidates.some(c=>!c || typeof c !== 'object' || Array.isArray(c) || (c.prices !== undefined && (!Array.isArray(c.prices) || c.prices.some(p=>!p || typeof p !== 'object' || Array.isArray(p)))))) throw new Error('This backup contains invalid card results. Nothing was imported.');
     }
   }
+  if (value.scanImages !== undefined && (!value.scanImages || typeof value.scanImages !== 'object' || Array.isArray(value.scanImages))) throw new Error('Invalid scan images in backup.');
+  const ids=new Set(value.entries.map(e=>e.id));
+  for(const [id,image] of Object.entries(value.scanImages || {})) { if(!ids.has(id))throw new Error('Backup photo has no matching card.');PokeSiftPhotos.decode(image); }
   return value;
 }
 $('import-backup').onclick = () => $('backup-file').click();
@@ -338,28 +390,37 @@ $('backup-file').onchange = async event => {
   const file=event.target.files[0]; event.target.value=''; if (!file) return;
   try {
     if (active || jobs.length || pendingPreparation) throw new Error('Let current scans finish before restoring a backup.');
-    if (file.size > 25*1024*1024) throw new Error('This backup exceeds the 25 MB import limit.');
+    if (file.size > 250*1024*1024) throw new Error('This backup exceeds the 250 MB import limit.');
     const backup=validateBackup(JSON.parse(await file.text())), seen=new Set(entries.map(e=>e.id));
     const added=[]; let skipped=0;
-    for (const e of backup.entries) {
+    for (const original of backup.entries) {
+      const e=retainHistoricalEvidence(original);
       if (seen.has(e.id)) { skipped++; continue; }
       seen.add(e.id);
       const result=normalizeResult(e.result);
       added.push({...e,result,currencyAssumed:Boolean(result?.data?.candidates?.some(c=>c.prices?.some(p=>p.currency_assumed))),
         ...(busyStates.has(e.status)?{status:'interrupted',message:'This scan was unfinished when backed up. It has not been resubmitted.'}:{})});
     }
-    if (!added.length) { notify('All cards in this backup are already in your collection.'); return; }
-    if (!confirm(`Restore ${added.length} cards? ${skipped} duplicate entries will be skipped. Existing cards stay unchanged. No scans will be used.`)) return;
+    const missingMedia=[];
+    for(const id of Object.keys(backup.scanImages || {})) { if(!await PokeSiftPhotos.get(id))missingMedia.push(id); }
+    if (!added.length && !missingMedia.length) { notify('All cards in this backup are already in your collection.'); return; }
+    if (!confirm(`Restore ${added.length} cards and ${missingMedia.length} scan photos? ${skipped} duplicate entries will be skipped. Existing cards stay unchanged. No scans will be used.`)) return;
+    for(const id of missingMedia) {
+      const blob=PokeSiftPhotos.decode(backup.scanImages[id]), persisted=await PokeSiftPhotos.put(id,blob);
+      const e=added.find(e=>e.id===id) || entries.find(e=>e.id===id);
+      e.scanPhoto={id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted};
+    }
+    for(const e of added) { if(e.scanPhoto && !await PokeSiftPhotos.get(e.id))e.scanPhoto={...e.scanPhoto,persisted:false}; }
     entries=[...added,...entries];
     if (validFx(backup.exchangeRates) && (!fx || backup.exchangeRates.date > fx.date)) {
       fx=backup.exchangeRates; fxFailed=true;
       try { localStorage.setItem(FX_KEY,JSON.stringify(fx)); } catch {}
     }
     const saved=save(); render();
-    notify(saved ? `${added.length} cards restored. No scans used.` : 'Cards restored in memory. Export them before leaving; browser storage is full.');
+    notify(saved ? `${added.length} cards and ${missingMedia.length} scan photos restored. No scans used.` : 'Cards restored in memory. Export them before leaving; browser storage is full.');
   } catch(error) { notify(error instanceof SyntaxError ? 'That file is not a valid JSON backup. Nothing was imported.' : error.message); }
 };
-window.addEventListener('beforeunload',event => { if (active || jobs.length || pendingPreparation) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload',event => { if (active || jobs.length || pendingPreparation || PokeSiftPhotos.hasTransient()) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('pagehide',stopCamera);
 window.addEventListener('storage',event => {
   if (event.key === STORAGE_KEY) { readOnlyStorage = true; storageWarning('Your collection changed in another tab. Export any new cards here, then reload to see that tab’s saved collection. This tab will not overwrite it.'); }
