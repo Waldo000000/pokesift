@@ -26,3 +26,7 @@ body{color:var(--ink)}
 
 /* Binder pages are physical drag surfaces, including their printed numbers. */
 .binder-book,.binder-book *{-webkit-user-select:none;user-select:none}
+
+/* Keep the exit to the real collection visible while exploring demos. */
+.prototype-bar{position:sticky;top:0;z-index:200}.prototype-bar .collection-return{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:10px 15px;white-space:nowrap;font-size:13px;font-weight:700;background:#e5edcf;color:#20362b;border-radius:24px}.prototype-bar .collection-return:hover{background:#f3f7e7}
+@media(max-width:640px){.prototype-bar{flex-wrap:wrap;gap:4px 12px}.prototype-bar nav{order:3;width:100%;justify-content:center}.prototype-bar .choose-button{max-width:none;margin-left:auto}}
