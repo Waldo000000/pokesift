@@ -103,5 +103,31 @@ await phone.waitForTimeout(350);const touchSource=await phone.locator('#card-pil
 await phone.locator('#next-page').click();await phone.waitForTimeout(800);await phone.locator('#binder-spread .vacant').nth(2).scrollIntoViewIfNeeded();const emptyTouch=await phone.locator('#binder-spread .vacant').nth(2).boundingBox(),vx=emptyTouch.x+emptyTouch.width/2,vy=emptyTouch.y+emptyTouch.height/2;await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:vx,y:vy,id:1}]});await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:vx-16,y:vy+10,id:1}]});assert.equal(await phone.locator('.turning-sheet').count(),1);await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await phone.waitForTimeout(800);assert.equal(await phone.locator('#binder-spread').getAttribute('data-start-page'),'2');
 await phone.goto(base+'desk.html');await phone.locator('#card-fan').scrollIntoViewIfNeeded();box=await phone.locator('#card-fan').boundingBox();tx=box.x+box.width/2;ty=box.y+box.height/2;await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:tx,y:ty,id:1}]});await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:tx+75,y:ty,id:1}]});await phone.waitForTimeout(160);assert(Number(await phone.locator('#card-fan').getAttribute('data-position'))<12.6);await phone.waitForTimeout(470);assert(Number(await phone.locator('#card-fan').getAttribute('data-reveal'))<.02);await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await phone.waitForTimeout(1200);
 for(const [dx,expected] of [[30,11],[-30,12]]){await startOpenTrace(phone);await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:tx,y:ty,id:1}]});await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:tx+dx,y:ty,id:1}]});await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await phone.waitForTimeout(450);await checkOpenTrace(phone);assert.equal(Number(await phone.locator('#card-fan').getAttribute('data-position')),expected,'Native touch flick steps one card');assert.equal(Number(await phone.locator('#card-fan').getAttribute('data-reveal')),1);}
+// A screen-wide flick is still one card, in either direction. Small diagonal
+// thumb movement must not scroll the page or close the fan during the gesture.
+for(const [direction,expected] of [[1,11],[-1,12]]){
+  const startX=direction===1?40:350,start=Number(await phone.locator('#card-fan').getAttribute('data-position')),scroll=await phone.evaluate(()=>scrollY),positions=[start];
+  await startOpenTrace(phone);await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:startX,y:ty,id:1}]});
+  for(let i=1;i<=7;i++){await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:startX+direction*i*42,y:ty+i*4,id:1}]});positions.push(Number(await phone.locator('#card-fan').getAttribute('data-position')));}
+  await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await phone.waitForTimeout(450);await checkOpenTrace(phone);
+  assert.equal(Number(await phone.locator('#card-fan').getAttribute('data-position')),expected,'Screen-wide flick advances exactly one card');
+  assert(positions.every(n=>n>=Math.min(start,expected)&&n<=Math.max(start,expected)),'A long flick must not browse past its destination before release');
+  assert.equal(await phone.evaluate(()=>scrollY),scroll,'Horizontal thumb flick must not scroll the page');
+}
+// If a long sweep turns into a hold, switching modes cannot jump to the full
+// accumulated distance. Further dragging follows the finger without a lag.
+await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:40,y:ty,id:1}]});
+await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:290,y:ty,id:1}]});await phone.waitForTimeout(40);
+const capped=Number(await phone.locator('#card-fan').getAttribute('data-position'));assert.equal(capped,11);
+await phone.waitForTimeout(450);assert.equal(Number(await phone.locator('#card-fan').getAttribute('data-position')),capped,'Changing to a hold must preserve the current fan position');
+await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:340,y:ty,id:1}]});await phone.waitForTimeout(40);
+assert(Math.abs(Number(await phone.locator('#card-fan').getAttribute('data-position'))-(capped-50/105))<.002);
+await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await phone.waitForTimeout(550);
+// Holding first still permits a screen-wide, multi-card drag at full speed.
+const heldStart=Number(await phone.locator('#card-fan').getAttribute('data-position'));
+await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:40,y:ty,id:1}]});await phone.waitForTimeout(500);
+await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:340,y:ty,id:1}]});await phone.waitForTimeout(40);
+assert(Math.abs(Number(await phone.locator('#card-fan').getAttribute('data-position'))-(heldStart-300/105))<.002,'Held dragging must retain its full multi-card range');
+await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
 await touchContext.close();
 assert.deepEqual(errors,[]);assert.equal(network,0);console.log('PASS: free-direction sleeve dragging (mouse and touch), subtle corner and empty-page gestures, occupied sleeve rejection, two stacks, corner turns, iPad spread; direct open-to-open flicks in both directions and steady fan dragging without reversals or settle overshoot; floating species fans, neighbour nudging, saved positions, PNG download and Web Share path; mobile and native touch. No provider requests.');}finally{await browser?.close();server.kill();}})().catch(e=>{console.error(e);process.exit(1)});

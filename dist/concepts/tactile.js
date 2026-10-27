@@ -83,16 +83,21 @@
       if(reduced()){paint();return;}
       if(!frame)frame=requestAnimationFrame(()=>{frame=0;paint();});
     }
-    function beginDrag(){if(!gesture||!gesture.moved||gesture.dragging)return;clearTimeout(gestureTimer);gesture.dragging=true;revealTo(0);}
-    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length||gesture)return;const startIndex=Math.round(frame?target:position),now=performance.now();cancelAnimationFrame(frame);frame=0;cancelAnimationFrame(revealFrame);revealFrame=0;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,startIndex,started:now,lastMove:now,lastX:e.clientX,path:0,moved:false,dragging:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
+    function beginDrag(){if(!gesture||!gesture.moved||gesture.dragging)return;clearTimeout(gestureTimer);gesture.dragging=true;gesture.dragPosition=position;gesture.dragX=gesture.appliedX;revealTo(0);}
+    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length||gesture)return;const startIndex=Math.round(frame?target:position),now=performance.now();cancelAnimationFrame(frame);frame=0;cancelAnimationFrame(revealFrame);revealFrame=0;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,startIndex,started:now,lastMove:now,lastX:e.clientX,appliedX:e.clientX,path:0,moved:false,dragging:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
     host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,delta=Math.abs(e.clientX-gesture.lastX);if(delta>.5){gesture.path+=delta;gesture.lastX=e.clientX;gesture.lastMove=performance.now();}if(Math.abs(dx)>4)gesture.moved=true;if(!gesture.moved)return;
-      if(!gesture.dragging){const remaining=flickGesture.maxMs-(performance.now()-gesture.started);clearTimeout(gestureTimer);if(remaining<=0||Math.abs(dx)>step()||Math.abs(dx)<gesture.path*flickGesture.straightness)beginDrag();else gestureTimer=setTimeout(beginDrag,Math.min(flickGesture.pauseMs,remaining));}
-      const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;follow();},{signal});
+      if(!gesture.dragging){const remaining=flickGesture.maxMs-(performance.now()-gesture.started);clearTimeout(gestureTimer);if(remaining<=0||Math.abs(dx)<gesture.path*flickGesture.straightness)beginDrag();else gestureTimer=setTimeout(beginDrag,Math.min(flickGesture.pauseMs,remaining));}
+      const max=Math.max(0,list.length-1);
+      let raw=gesture.dragging?gesture.dragPosition-(e.clientX-gesture.dragX)/step():gesture.position-dx/step();
+      // A quick sweep can span the screen, but previews at most the next card.
+      // Rebase at the current pose if it becomes a hold, so uncapping never jumps.
+      if(!gesture.dragging){const next=Math.max(0,Math.min(max,gesture.startIndex-Math.sign(dx)));raw=dx>0?Math.max(next,raw):Math.min(next,raw);}
+      target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;gesture.appliedX=e.clientX;follow();},{signal});
     function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;clearTimeout(gestureTimer);gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){
         const now=performance.now(),dx=e.clientX-g.x,dy=e.clientY-g.y,distance=Math.abs(dx),duration=now-g.started;
-        // A short, quick release steps one card. A hold, pause, reversal or long
-        // sweep remains a drag, with no velocity impulse added to its motion.
-        const flick=!g.dragging&&duration<=flickGesture.maxMs&&distance>=flickGesture.minPixels&&distance<=step()&&distance/Math.max(1,duration)>=flickGesture.minSpeed&&now-g.lastMove<=flickGesture.pauseMs&&distance>=Math.abs(dy)*1.15&&distance>=g.path*flickGesture.straightness;
+        // A quick release steps one card regardless of swipe length. A hold,
+        // pause or reversal remains a drag, with no added velocity impulse.
+        const flick=!g.dragging&&duration<=flickGesture.maxMs&&distance>=flickGesture.minPixels&&distance/Math.max(1,duration)>=flickGesture.minSpeed&&now-g.lastMove<=flickGesture.pauseMs&&distance>=Math.abs(dy)*1.15&&distance>=g.path*flickGesture.straightness;
         go(flick?g.startIndex-Math.sign(dx):Math.round(target),{flick});
       }else if(g.card>=0){if(g.card===Math.round(position)){go(Math.round(position));onOpen(list[g.card]);}else go(g.card);}else go(Math.round(position));e.preventDefault();}
     host.addEventListener('pointerup',e=>release(e),{signal});host.addEventListener('pointercancel',e=>release(e,true),{signal});host.addEventListener('lostpointercapture',e=>{if(gesture)release(e,true);},{signal});
