@@ -33,26 +33,48 @@
   // One pointer-driven fan is shared by the full browser and Pokémon details.
   function makeFan(host,list,{initialIndex=Math.max(0,list.length-1),onChange=()=>{},onOpen=cardDetail}={}) {
     const controller=new AbortController(),signal=controller.signal;
-    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,velocity=0,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0,revealTarget=1;
+    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0,revealTarget=1,revealAnchor=position;
     host.classList.add('tactile-fan');host.replaceChildren();
     const buttons=list.map((c,i)=>{const b=document.createElement('button');b.className='fan-card';b.dataset.fanIndex=i;b.setAttribute('aria-label',c.name+', '+valueOfCard(c));b.innerHTML=`<img src="${escapeHTML(img(c))}" alt="${escapeHTML(c.name)} ${escapeHTML(c.edition)}" draggable="false" loading="lazy" decoding="async"><span class="fan-price">${valueOfCard(c)}</span>`;b.onclick=e=>{if(e.detail===0){if(Math.round(position)===i)onOpen(c);else go(i);}};host.append(b);return b;});
     const step=()=>host.clientWidth<500?105:145;
     function paint(){
       const mobile=host.clientWidth<500,selected=Math.max(0,Math.min(list.length-1,Math.round(position)));
       const cardWidth=buttons[0]?.offsetWidth||180,spacing=mobile?30:43,radius=mobile?900:1250;
-      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),fraction=Math.max(0,Math.min(1,d)),opening=fraction*fraction*(3-2*fraction),arc=d*spacing+opening*cardWidth*.88*reveal,angle=arc/radius;
+      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),fraction=Math.max(0,Math.min(1,i-revealAnchor)),opening=fraction*fraction*(3-2*fraction),arc=d*spacing+opening*cardWidth*.88*reveal,angle=arc/radius;
         b.style.transform=`translateX(calc(-50% + ${Math.sin(angle)*radius}px)) translateY(${(1-Math.cos(angle))*radius}px) rotate(${angle*180/Math.PI}deg)`;const fade=list.length>30?Math.max(0,Math.min(1,(a-10)/8)):0,opacity=1-fade*fade*(3-2*fade);b.style.opacity=String(opacity);b.style.zIndex=String(i+1);b.style.visibility=opacity>0?'visible':'hidden';b.style.willChange=opacity>0?'transform':'auto';b.style.pointerEvents=opacity>0?'auto':'none';b.classList.toggle('selected',i===selected);b.tabIndex=i===selected?0:-1;b.setAttribute('aria-pressed',String(i===selected));b.querySelector('.fan-price').style.opacity=String(Math.max(0,1-a*2));});
       host.dataset.position=position.toFixed(3);host.dataset.reveal=reveal.toFixed(3);
       if(selected!==lastLabel){lastLabel=selected;onChange(selected,list[selected]);}
     }
-    function revealTo(next){if(revealTarget===next&&revealFrame)return;revealTarget=next;cancelAnimationFrame(revealFrame);if(reduced()){reveal=next;paint();return;}const from=reveal,started=performance.now(),duration=next===1?800:460;function tick(now){const t=Math.min(1,(now-started)/duration),ease=t*t*(3-2*t);reveal=from+(next-from)*ease;paint();if(t<1)revealFrame=requestAnimationFrame(tick);else revealFrame=0;}revealFrame=requestAnimationFrame(tick);}
-    function go(next){target=Math.max(0,Math.min(list.length-1,next));cancelAnimationFrame(frame);if(reduced()){position=target;velocity=0;paint();return;}let previous=performance.now();
-      function spring(now){const dt=Math.min(.025,(now-previous)/1000);previous=now;velocity+=(target-position)*240*dt;velocity*=Math.exp(-25*dt);position+=velocity*dt;paint();if(Math.abs(target-position)<.001&&Math.abs(velocity)<.01){position=target;velocity=0;paint();frame=0;}else frame=requestAnimationFrame(spring);}
-      frame=requestAnimationFrame(spring);
+    // Keep the opening attached to the same cards until it has closed. Moving
+    // that opening with the selection made a steady drag reverse a card's path.
+    function maybeReveal(){if(!gesture&&!frame&&reveal===0){revealAnchor=position;revealTo(1);}}
+    function revealTo(next){
+      if(revealTarget===next&&revealFrame)return;
+      revealTarget=next;cancelAnimationFrame(revealFrame);revealFrame=0;
+      if(reduced()||reveal===next){reveal=next;paint();return;}
+      const from=reveal,started=performance.now(),duration=next===1?650:460;
+      function tick(now){const t=Math.min(1,Math.max(0,(now-started)/duration)),ease=t*t*(3-2*t);reveal=from+(next-from)*ease;paint();if(t<1)revealFrame=requestAnimationFrame(tick);else{revealFrame=0;if(next===0)maybeReveal();}}
+      revealFrame=requestAnimationFrame(tick);
     }
-    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length)return;cancelAnimationFrame(frame);velocity=0;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,lastX:e.clientX,lastTime:performance.now(),speed:0,moved:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
-    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,now=performance.now();if(Math.abs(dx)>4&&!gesture.moved){gesture.moved=true;revealTo(0);}const dt=Math.max(8,now-gesture.lastTime);gesture.speed=.6*gesture.speed+.4*(e.clientX-gesture.lastX)/dt;gesture.lastX=e.clientX;gesture.lastTime=now;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);position=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;paint();},{signal});
-    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;revealTo(1);host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){const speed=performance.now()-g.lastTime>120?0:g.speed;velocity=-speed/step()*1000;go(Math.round(position+Math.max(-1.5,Math.min(1.5,velocity*.09))));}else {go(Math.round(position));if(g.card>=0){if(g.card===Math.round(position))onOpen(list[g.card]);else go(g.card);}}e.preventDefault();}
+    function go(next){
+      target=Math.max(0,Math.min(list.length-1,next));cancelAnimationFrame(frame);frame=0;
+      if(reduced()){cancelAnimationFrame(revealFrame);revealFrame=0;position=target;revealAnchor=position;reveal=revealTarget=1;paint();return;}
+      revealTo(0);
+      const from=position,started=performance.now();
+      if(Math.abs(target-from)<.001){position=target;paint();maybeReveal();return;}
+      // A bounded ease replaces the spring and flick impulse: no overshoot.
+      function settle(now){const t=Math.min(1,Math.max(0,(now-started)/320));position=from+(target-from)*(1-Math.pow(1-t,3));paint();if(t<1)frame=requestAnimationFrame(settle);else{position=target;frame=0;paint();maybeReveal();}}
+      frame=requestAnimationFrame(settle);
+    }
+    function follow(){
+      if(frame)return;if(reduced()){position=target;paint();return;}
+      let previous=performance.now();
+      function tick(now){const dt=Math.max(0,Math.min(50,now-previous));previous=now;position+=(target-position)*(1-Math.exp(-dt/75));if(Math.abs(target-position)<.0005){position=target;frame=0;paint();return;}paint();frame=requestAnimationFrame(tick);}
+      frame=requestAnimationFrame(tick);
+    }
+    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length)return;cancelAnimationFrame(frame);frame=0;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,moved:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
+    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x;if(Math.abs(dx)>4&&!gesture.moved){gesture.moved=true;revealTo(0);}if(!gesture.moved)return;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;follow();},{signal});
+    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved)go(Math.round(target));else if(g.card>=0){if(g.card===Math.round(position)){go(Math.round(position));onOpen(list[g.card]);}else go(g.card);}else go(Math.round(position));e.preventDefault();}
     host.addEventListener('pointerup',e=>release(e),{signal});host.addEventListener('pointercancel',e=>release(e,true),{signal});host.addEventListener('lostpointercapture',e=>{if(gesture)release(e,true);},{signal});
     host.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();go(target+(e.key==='ArrowRight'?1:-1));}},{signal});
     const observer=new ResizeObserver(paint);observer.observe(host);paint();
