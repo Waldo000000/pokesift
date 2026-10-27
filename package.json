@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "scripts": {
     "test:browser": "node tests/browser.cjs",
-    "check": "node --check dist/app.js",
-    "test:concepts": "node tests/concepts.cjs"
+    "check": "node --check dist/app.js && node --check dist/photo-store.js && node --check dist/auth.js && node --check dist/collection-views.js && node --check dist/collection-room.js && node --check dist/concepts/concepts.js && node --check dist/concepts/tactile.js",
+    "test:concepts": "node tests/concepts.cjs",
+    "test:collection": "node tests/collection-views.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

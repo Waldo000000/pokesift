@@ -1,13 +1,14 @@
 """PokéSift development service; public deployments require an HTTPS reverse proxy."""
 import base64
 from pikaqian import PikaQian, ProviderError
+from pokemon_art import ArtworkCache
 import io
 from http.cookies import SimpleCookie, CookieError
 from auth import mint_token, verify_token, LIFETIMES
 import hashlib
 import hmac
 import time
-from collections import deque
+from collections import deque, OrderedDict
 import datetime
 import math
 import json
@@ -100,15 +101,16 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def send(self, status, body, mime='application/json', cookie=None):
+    def send(self, status, body, mime='application/json', cookie=None, cache='no-store'):
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Cache-Control', cache)
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        ancestors = "'self'" if urlsplit(self.path).path == '/collection-room.html' else "'none'"
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob: data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors " + ancestors)
         if cookie:
             self.send_header('Set-Cookie', cookie)
         if self.server.public_origin:
@@ -206,6 +208,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.valid_host():
             return self.error(403, 'Unrecognized host')
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/auth.js': ('auth.js', 'text/javascript'), '/photo-store.js': ('photo-store.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
+        files.update({f'/{name}': (name, mime) for name, mime in [('species-index.js','text/javascript'),('collection-views.js','text/javascript'),('collection-room.js','text/javascript'),('collection-room.css','text/css'),('collection-room.html','text/html; charset=utf-8')]})
         # Public, static design samples. These use demo data and never call providers.
         files.update({f'/concepts/{name}.html': (f'concepts/{name}.html', 'text/html; charset=utf-8') for name in ('binder', 'desk', 'zoo')})
         files.update({f'/concepts/{name}': (f'concepts/{name}', mime) for name, mime in [('concepts.css', 'text/css'), ('concepts.js', 'text/javascript'), ('tactile.js', 'text/javascript'), ('art.js', 'text/javascript')]})
@@ -217,6 +220,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/session':
             return self.send(200, b'{"authenticated":true}')
         target = urlsplit(self.path)
+        if target.path == '/api/pokemon-art':
+            query = parse_qs(target.query)
+            if set(query) != {'id'} or len(query['id']) != 1:
+                return self.error(400, 'Invalid species ID')
+            try:
+                body = self.server.pokemon_art.get(query['id'][0])
+            except ValueError:
+                return self.error(400, 'Invalid species ID')
+            except Exception:
+                return self.error(502, 'Pokémon artwork temporarily unavailable')
+            return self.send(200, body, 'image/png', cache='private, max-age=604800')
         if target.path == '/api/exchange-rates':
             with self.server.fx_lock:
                 if self.server.fx_cache and time.monotonic() - self.server.fx_cached_at < 6 * 3600:
@@ -320,15 +334,22 @@ class Handler(BaseHTTPRequestHandler):
             valid = (mime == 'image/jpeg' and photo.startswith(b'\xff\xd8\xff')) or (mime == 'image/png' and photo.startswith(b'\x89PNG\r\n\x1a\n')) or (mime == 'image/webp' and photo.startswith(b'RIFF') and photo[8:12] == b'WEBP')
             if not valid:
                 return self.error(400, 'Image contents do not match its format')
-            # Shared, bounded development scan budget; rejected/failed upstream
-            # calls still count. No automatic retry, even on timeout.
+            # Paired devices may scan continuously. Only short bursts are limited;
+            # failures still count and no upstream request is automatically retried.
             with self.server.scan_lock:
                 now = time.monotonic()
-                while self.server.scan_times and now - self.server.scan_times[0] >= 3600:
-                    self.server.scan_times.popleft()
-                if len(self.server.scan_times) >= 10:
-                    return self.error(429, 'Hourly limit reached (10 attempts). Try again later.')
-                self.server.scan_times.append(now)
+                for device in list(self.server.scan_times):
+                    times = self.server.scan_times[device]
+                    while times and now - times[0] >= 1:
+                        times.popleft()
+                    if not times:
+                        del self.server.scan_times[device]
+                times = self.server.scan_times.setdefault(self.device_id, deque())
+                if len(times) >= 2:
+                    return self.error(429, 'Scanning too quickly. Allow a second between batches. This photo was not sent to the provider.')
+                times.append(now)
+                while len(self.server.scan_times) > 1024:
+                    self.server.scan_times.popitem(last=False)
             status, body = self.server.forward(key, photo, mime)
             # Parse before redaction so JSON-escaped key echoes are removed too.
             try:
@@ -386,6 +407,7 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     server = BoundedServer((bind, port), Handler)
     server.public_origin = public_origin
     server.forward = forward_request
+    server.pokemon_art = ArtworkCache()
     server.card_image = fetch_card_image
     server.exchange_rates = fetch_exchange_rates
     server.fx_cache = None
@@ -396,7 +418,7 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     server.app_password = os.environ.get('POKESIFT_PASSWORD', '')
     server.auth_lock = threading.Lock()
     server.auth_attempts = deque()
-    server.scan_times = deque()
+    server.scan_times = OrderedDict()
     server.scan_lock = threading.Lock()
     return server
 

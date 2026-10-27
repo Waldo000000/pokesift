@@ -8,7 +8,7 @@ A camera-first Pokémon collection app: scan cards in succession, watch their va
 
 1. Scan a pairing QR to remember your device for 30 days. A paired device can use **Add another device** to create another ten-minute invite.
 2. Open **Add cards** and take photos repeatedly, or select several existing photos. Up to two scans run concurrently; results and values appear in the camera tray without interrupting capture.
-3. Close the camera to browse, search and review your collection. Closing the camera stops video capture but lets queued scans finish; keep the page open until they complete.
+3. Close the camera and choose **All cards**, **Binder**, **Fan** or **Pokémon Zoo** to browse your saved collection. Closing the camera stops video capture but lets queued scans finish; keep the page open until they complete.
 4. Review uncertain Chinese printing matches and confirm the correct card. Unsupported or unpriced cards stay in the collection with **Value unknown** and the identification details available so far.
 5. For **Retake suggested**, choose **Retake photo** on the collection card or in its details. The next capture updates that entry; opening or cancelling the camera uses no scan. Submitting a new photo uses one scan. Previous captures and provider responses remain in the backup.
 6. Use **Back up collection** regularly. Collections belong to this browser; pairing another device does not synchronize them.
@@ -19,6 +19,18 @@ Live camera captures use a portrait frame with the proportions of a Pokémon car
 
 Camera uploads retain their source dimensions, crop rectangle and zoom in the collection and backups. The archived scan image is the exact cropped upload; the full surrounding webcam frame is not retained.
 
+## Browsing your collection
+
+The home-page tabs use your actual saved cards, images and AUD valuations:
+
+- **Binder:** a physical simulation with at least 20 pages and two stacks. New cards join stack one. Pull cards up out of sleeves, drop them in empty pockets or on either stack, and turn pages from a corner or an empty pocket. Occupied pockets cannot be swapped. Landscape tablets show a two-page spread. Tap a card for placement actions and full details.
+- **Fan:** sift through overlapping cards, filter by Pokémon species type, search and sort. Cards stay overlapped while dragging and reveal the selected card after release. Tap the selected card to review its original valuation choices and details.
+- **Pokémon Zoo:** one character per identified species, with evolutions initially grouped together. Drag characters to arrange them; tap to open a fan of your copies and variants. **Share picture** uses mobile sharing when available, otherwise downloads a PNG.
+
+Binder placements and Zoo positions save with the collection and travel in backups. Browsing does not spend identification or pricing credits. The Zoo uses a bundled multilingual index of 1,025 Pokémon species, plus public [PokéAPI artwork](https://github.com/PokeAPI/sprites) fetched through an authenticated, cached endpoint. No new API key is needed. It groups species, not every regional form or artwork variation. The **Pokémon in this card** section in card details lets you correct a detected species, assign multiple species, or exclude a trainer/energy card. Unidentified cards remain available in the Binder and Fan.
+
+The home page also links to the separate sample-card [Binder](https://pokesift-dev.onrender.com/concepts/binder.html), [Fan](https://pokesift-dev.onrender.com/concepts/desk.html) and [Zoo](https://pokesift-dev.onrender.com/concepts/zoo.html) prototypes. Their demo arrangements are isolated from your collection.
+
 ## Identification, images and prices
 
 | Service | Role | Configuration and coverage |
@@ -26,6 +38,8 @@ Camera uploads retain their source dimensions, crop rectangle and zoom in the co
 | [TCG API](https://api.tcgapi.dev/) | Primary photo identification and prices | `TCGAPI_KEY`; its catalog documents English printings and Japanese Pokémon support. |
 | [PikaQian](https://pikaqian.com/docs/) | Secondary Chinese catalog, canonical images and raw-card prices | `PIKAQIAN_API_KEY`; Free provides catalog access, while raw prices require Hobby or above. Variant coverage also depends on the plan. |
 | [Frankfurter](https://frankfurter.dev/) | Public ECB-derived exchange rates for AUD display | No API key. Rates are cached for six hours. |
+
+Buy more primary identification scans in the [TCG API dashboard](https://tcgapi.dev/dashboard/) under **Billing**; see their [scan-pack pricing](https://tcgapi.dev/pricing/).
 
 New unsupported, not-found or ambiguous Pokémon scans with a readable name and collector number automatically try PikaQian. This sends saved identification details, not another photo. Existing entries offer **Check Chinese catalog**; confirmed PikaQian entries offer **Refresh Chinese card details**. Reloading or restoring a backup never repeats a lookup automatically.
 
@@ -71,13 +85,13 @@ There is no collection database or cloud synchronization. Data stays in the curr
 
 | Browser store | Contents |
 | --- | --- |
-| localStorage `pokesift.collection.v1` | Entries, stable IDs, timestamps, capture thumbnails, canonical images, identification results, provider observations, confirmed catalog matches, original prices/currencies, valuation selections and price-check outcomes. |
+| localStorage `pokesift.collection.v1` | Entries, stable IDs, timestamps, capture thumbnails, canonical images, identification results, provider observations, confirmed catalog matches, original prices/currencies, valuation selections, price-check outcomes, manual species assignments, binder placements and Zoo positions. |
 | IndexedDB `pokesift-media`, store `scan-images` | The exact prepared image uploaded for each new scan, up to 2048 pixels / 8 MB. This is not the original full-resolution camera file. |
 | localStorage `pokesift.fx.v1` | Cached exchange rates and their provenance. |
 
-**Back up collection** downloads a version 3 JSON backup combining both storage systems and the rate cache. It includes current and previous retake images, capture history, and a `missingScanImages` list for any expected images that could not be recovered. Passwords, session cookies and invites are excluded.
+**Back up collection** downloads a version 4 JSON backup combining both storage systems and the rate cache. It includes Binder/Zoo arrangements, species assignments, current and previous retake images, capture history, and a `missingScanImages` list for any expected images that could not be recovered. Passwords, session cookies and invites are excluded.
 
-**Restore backup** accepts version 1, 2 and 3 backups, up to 250 MB / 1,000 entries. It merges by entry ID, skips existing card records and can fill missing archived images. Pending scans become interrupted records. Restore makes no identification or catalog-image requests. Keep the original file until the restored collection is verified.
+**Restore backup** accepts version 1–4 backups, up to 250 MB / 1,000 entries. It merges by entry ID, skips existing card records and can fill missing archived images. Existing arrangements are preserved when merging; an empty collection restores the backed-up layout. Pending scans become interrupted records. Restore makes no identification or catalog-image requests. Keep the original file until the restored collection is verified.
 
 Saved identifiers, raw server-redacted provider observations and archived uploads can support a future database migration or another provider without photographing cards again. Older entries only have the images retained when they were created; lost resolution cannot be recovered. A new paid processing operation would still consume that provider's allowance.
 
@@ -151,13 +165,13 @@ Run the automated checks without real provider credentials or scans:
 
 ```sh
 python3 -m unittest discover -s tests -v
-node --check dist/app.js
-node --check dist/photo-store.js
-node --check dist/auth.js
+npm run check
 npm run test:browser
+npm run test:concepts
+npm run test:collection
 ```
 
-Tests use fake credentials and mocked upstream responses. The browser suite starts a temporary local server and covers capture queues, mobile layout, result arrivals, valuation choices, currencies, Chinese matching, bulk pricing, storage failures and backup/restore, older-card enrichment and retake history. [GitHub Actions](.github/workflows/checks.yml) runs the Python, JavaScript syntax and browser checks.
+Tests use fake credentials and mocked upstream responses. The browser suite starts a temporary local server and covers capture queues, mobile layout, result arrivals, valuation choices, currencies, Chinese matching, bulk pricing, storage failures and backup/restore, older-card enrichment and retake history. Separate suites cover the physical prototypes and production collection views, species corrections, saved arrangements and complete backup/restore without paid requests. [GitHub Actions](.github/workflows/checks.yml) runs the Python, JavaScript syntax and browser checks.
 
 PikaQian pricing is tested against schema-based fixtures. The live key was on Free during initial integration verification; a real pricing-enabled response still needs verification after an account upgrade.
 
@@ -169,6 +183,10 @@ PikaQian pricing is tested against schema-based fixtures. The live key was on Fr
 | [`auth.py`](auth.py) | Purpose-separated, origin-bound invite and session signatures. |
 | [`pikaqian.py`](pikaqian.py) | Chinese catalog matching, pricing, cache and provider failure controls. |
 | [`dist/`](dist/) | Browser UI, capture queue, valuations, collection and local media storage. |
+| [`dist/collection-views.js`](dist/collection-views.js) | Collection/species mapping and persistence bridge to the isolated browsing frame. |
+| [`dist/concepts/`](dist/concepts/) | Shared Binder, Fan and Zoo interactions, plus public sample pages. |
+| [`pokemon_art.py`](pokemon_art.py) | Fixed-host public artwork retrieval with bounded cache and failure cooldown. |
+| [`scripts/build_species_index.py`](scripts/build_species_index.py) | Regenerate the bundled multilingual species index from PokéAPI CSV data. |
 | [`scripts/create_invite.py`](scripts/create_invite.py) | Bootstrap/recovery QR generation. |
 | [`tests/`](tests/) | Python unit tests and Playwright browser regression suite. |
 
@@ -180,7 +198,7 @@ The backend does not persist collection photos or provider responses. TCG API re
 
 | Provider protection | Current limit per server process |
 | --- | --- |
-| TCG identification | 10 attempts/hour, including failures; uploads up to 8 MB. |
+| TCG identification | Two attempts per rolling second per paired device, including failures; no hourly cap. Uploads up to 8 MB. The browser spaces starts by 550 ms and runs at most two concurrently. |
 | PikaQian requests | 60 upstream attempts/hour, including failures; five-minute cache with up to 250 entries. Catalog searches inspect at most 100 records and three candidate details. |
 | PikaQian provider failures | Five-minute pause after three failures, a malformed price summary, invalid credentials or quota rejection. Pricing-plan denial is cached for 60 seconds. |
 

@@ -5,6 +5,7 @@ const FX_KEY = 'pokesift.fx.v1';
 let fx = null, fxLoading = false, fxFailed = false;
 const busyStates = new Set(['preparing', 'queued', 'scanning']);
 const reviewStates = new Set(['ambiguous', 'retake', 'not_found', 'unsupported', 'error', 'interrupted']);
+let collectionViews = null;
 let entries = [], filter = 'all', active = 0, stream = null, cameraGeneration = 0;
 let latestTimer, showCapturedPhoto = false;
 let focusedId = null, preparing = Promise.resolve(), readOnlyStorage = false, toastTimer;
@@ -26,7 +27,7 @@ function storageWarning(message) { $('storage-warning').textContent = message; $
 function save() {
   if (readOnlyStorage) {unsavedCollection=true;return false;}
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({version: 1, entries}));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({version: 1, entries, collectionViews}));
     $('storage-warning').hidden = true;
     $('saved-note').textContent = 'Saved in this browser. No cloud sync.';
     unsavedCollection=false;
@@ -62,6 +63,7 @@ function load() {
     if (!raw) return;
     const stored = JSON.parse(raw);
     if (stored.version !== 1 || !Array.isArray(stored.entries) || stored.entries.some(e => !e || typeof e.id !== 'string' || typeof e.status !== 'string' || (!/^data:image\/(jpeg|png|webp);base64,/.test(e.thumbnail || '') || (e.canonicalImage && !/^data:image\/(jpeg|png|webp);base64,/.test(e.canonicalImage))))) throw new Error();
+    collectionViews = stored.collectionViews || null;
     entries = stored.entries.map(retainHistoricalEvidence).map(e => ({...e, result: normalizeResult(e.result)})).map(e => ({...e, currencyAssumed: Boolean(e.result?.data?.candidates?.some(c => c.prices?.some(p => p.currency_assumed)))})).map(e => busyStates.has(e.status) ? {...e, status: 'interrupted', message: 'The page closed before this result arrived. A scan may have been used. Check your provider balance before taking another photo.'} : e);
   } catch {
     readOnlyStorage = true;
@@ -150,6 +152,7 @@ function priceBasis(e) {
 }
 
 function render() {
+  window.PokeSiftViews?.refresh();
   renderBulkPrices();
   const inProgress = entries.filter(e => busyStates.has(e.status)).length;
   $('fx-refresh').textContent = fxLabel() + ' ↻'; $('fx-refresh').disabled = fxLoading;
@@ -208,6 +211,7 @@ function render() {
 }
 function renderDetail() {
   const e = entries.find(e => e.id === focusedId); if (!e) return;
+  window.PokeSiftViews?.renderSpecies(e);
   const card = cardOf(e), payload = e.result?.data;
   $('detail-photo').src = showCapturedPhoto ? e.thumbnail : e.canonicalImage || e.thumbnail;
   $('toggle-photo').hidden = !e.canonicalImage; $('toggle-photo').textContent = showCapturedPhoto ? 'View catalog image' : 'View your photo'; $('detail-photo').alt = titleOf(e);
@@ -361,8 +365,11 @@ function showLatestFind(e) {
   banner.classList.remove('arrived'); void banner.offsetWidth; banner.classList.add('arrived');
   clearTimeout(latestTimer); latestTimer = setTimeout(() => { banner.hidden = true; },7000);
 }
+let lastScanStart=0,pumpTimer;
 function pump() {
+  clearTimeout(pumpTimer);
   while (active < 2 && jobs.length) {
+    const delay=550-(Date.now()-lastScanStart);if(delay>0){pumpTimer=setTimeout(pump,delay);return;}lastScanStart=Date.now();
     const job = jobs.shift(); active++;
     runJob(job).finally(() => { active--; render(); pump(); });
   }
@@ -692,7 +699,7 @@ $('export').onclick = async() => {
       if(source)scanImages[e.id]=await PokeSiftPhotos.dataURL(source);
       else if(e.scanPhoto)missingScanImages.push(e.id);
     }
-    const backup={format:'pokesift-backup',backupVersion:3,version:1,exportedAt:new Date().toISOString(),entries:snapshot,scanImages,missingScanImages,exchangeRates:fx};
+    const backup={format:'pokesift-backup',backupVersion:4,version:1,exportedAt:new Date().toISOString(),entries:snapshot,scanImages,missingScanImages,exchangeRates:fx,collectionViews:structuredClone(collectionViews)};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pokesift-collection.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     if(missingScanImages.length)notify(`${missingScanImages.length} scan photos were unavailable. Their saved thumbnails and card details are included.`);
@@ -700,7 +707,7 @@ $('export').onclick = async() => {
   finally{button.disabled=false;button.textContent='Back up collection ↗';}
 };
 function validateBackup(value) {
-  if (!value || value.version !== 1 || (value.backupVersion !== undefined && ![1,2,3].includes(value.backupVersion)) || !Array.isArray(value.entries) || value.entries.length > 1000) throw new Error('Unsupported or oversized backup. Choose a PokéSift JSON backup.');
+  if (!value || value.version !== 1 || (value.backupVersion !== undefined && ![1,2,3,4].includes(value.backupVersion)) || !Array.isArray(value.entries) || value.entries.length > 1000) throw new Error('Unsupported or oversized backup. Choose a PokéSift JSON backup.');
   const statuses = new Set([...busyStates,...reviewStates,'matched']);
   const imageOK = image => typeof image === 'string' && image.length <= 2*1024*1024 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image);
   for (const e of value.entries) {
@@ -740,15 +747,21 @@ $('backup-file').onchange = async event => {
     }
     const missingMedia=[],records=mediaRecords([...added,...entries]);
     for(const id of Object.keys(backup.scanImages || {})) { if(records.some(e=>e.id===id) && !await PokeSiftPhotos.get(id))missingMedia.push(id); }
-    if (!added.length && !missingMedia.length) { notify('All cards in this backup are already in your collection.'); return; }
-    if (!confirm(`Restore ${added.length} cards and ${missingMedia.length} scan photos? ${skipped} duplicate entries will be skipped. Existing cards stay unchanged. No scans will be used.`)) return;
+    const restoreViews=Boolean(backup.collectionViews&&(!collectionViews||added.length));
+    if (!added.length && !missingMedia.length && !restoreViews) { notify('All cards in this backup are already in your collection.'); return; }
+    if (!confirm(`Restore ${added.length} cards and ${missingMedia.length} scan photos? ${skipped} duplicate entries will be skipped. Existing cards stay unchanged. Saved arrangements are included when available. No scans will be used.`)) return;
     for(const id of missingMedia) {
       const blob=PokeSiftPhotos.decode(backup.scanImages[id]), persisted=await PokeSiftPhotos.put(id,blob);
       const e=records.find(e=>e.id===id);
       e.scanPhoto={id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted};
     }
     for(const e of mediaRecords(added)) { if(e.scanPhoto && !await PokeSiftPhotos.get(e.id))e.scanPhoto={...e.scanPhoto,persisted:false}; }
-    entries=[...added,...entries];
+    const previousIds=entries.map(e=>e.id);entries=[...added,...entries];
+    if(backup.collectionViews&&window.PokeSiftViews){
+      const incoming=PokeSiftViews.sanitizeLayout(backup.collectionViews,entries.map(e=>e.id));
+      if(!previousIds.length||!collectionViews)collectionViews=incoming;
+      else {const current=PokeSiftViews.sanitizeLayout(collectionViews,previousIds),addedIds=new Set(added.map(e=>e.id)),placed=new Set();incoming.slots.forEach((id,i)=>{if(addedIds.has(id)&&!current.slots[i]){while(current.slots.length<=i)current.slots.push(null);current.slots[i]=id;placed.add(id);}});incoming.piles.forEach((pile,i)=>{for(const id of pile)if(addedIds.has(id)&&!placed.has(id)){current.piles[i].push(id);placed.add(id);}});for(const [id,position] of Object.entries(incoming.positions))if(!current.positions[id])current.positions[id]=position;collectionViews=PokeSiftViews.sanitizeLayout(current);}
+    }
     if (validFx(backup.exchangeRates) && (!fx || backup.exchangeRates.date > fx.date)) {
       fx=backup.exchangeRates; fxFailed=true;
       try { localStorage.setItem(FX_KEY,JSON.stringify(fx)); } catch {}
@@ -760,7 +773,7 @@ $('backup-file').onchange = async event => {
 window.addEventListener('beforeunload',event => { if (active || jobs.length || pendingPreparation || priceBatch.running || unsavedCollection || PokeSiftPhotos.hasTransient()) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('pagehide',stopCamera);
 window.addEventListener('storage',event => {
-  if (event.key === STORAGE_KEY) { stopPriceBatch(); readOnlyStorage = true; storageWarning('Your collection changed in another tab. Export any new cards here, then reload to see that tab’s saved collection. This tab will not overwrite it.'); }
+  if (event.key === STORAGE_KEY) { stopPriceBatch(); readOnlyStorage = true; storageWarning('Your collection changed in another tab. Export any new cards here, then reload to see that tab’s saved collection. This tab will not overwrite it.');window.PokeSiftViews?.refresh(); }
 });
 let initialized = false;
 function initializeCollection() {

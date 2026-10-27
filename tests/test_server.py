@@ -72,11 +72,17 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(self.request()[0], 503)
         self.assertEqual(self.calls, [])
 
-    def test_hourly_scan_limit(self):
-        for _ in range(10):
+    def test_paired_devices_have_short_burst_pacing_not_an_hourly_cap(self):
+        with patch('server.time.monotonic', return_value=100):
             self.assertEqual(self.request()[0], 200)
-        self.assertEqual(self.request()[0], 429)
-        self.assertEqual(len(self.calls), 10)
+            self.assertEqual(self.request()[0], 200)
+            self.assertEqual(self.request()[0], 429)
+            other = 'pokesift=' + mint_token(PASSWORD, 'session', 'http://' + self.host)
+            self.assertEqual(self.request(Cookie=other)[0], 200)
+        for second in range(101, 121):
+            with patch('server.time.monotonic', return_value=second):
+                self.assertEqual(self.request()[0], 200)
+        self.assertEqual(len(self.calls), 23)
 
     def test_page_requires_login_and_has_no_key_field(self):
         conn = http.client.HTTPConnection(self.host, timeout=5)
@@ -250,6 +256,28 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(result['rates'], rates['rates'])
         self.server.fx_cache = None
         self.assertEqual(request(self.cookie)[0], 503)
+
+    def test_artwork_auth_validation_and_frame_policy(self):
+        self.server.pokemon_art.fetch = MagicMock(return_value=PNG)
+        def get(path, cookie=self.cookie):
+            conn = http.client.HTTPConnection(self.host, timeout=5)
+            conn.request('GET', path, headers={'Cookie': cookie})
+            r = conn.getresponse()
+            result = r.status, r.read(), dict(r.getheaders())
+            conn.close()
+            return result
+        self.assertEqual(get('/api/pokemon-art?id=25', '')[0], 401)
+        for query in ('id=../25', 'id=1026', 'id=025', 'id=25&id=26', 'id=25&url=x'):
+            self.assertEqual(get('/api/pokemon-art?' + query)[0], 400)
+        self.server.pokemon_art.fetch.assert_not_called()
+        status, body, headers = get('/api/pokemon-art?id=25')
+        self.assertEqual((status, body), (200, PNG))
+        self.assertEqual(headers['Cache-Control'], 'private, max-age=604800')
+        self.assertEqual(get('/api/pokemon-art?id=25')[0], 200)
+        self.server.pokemon_art.fetch.assert_called_once_with('25')
+        self.assertIn("frame-ancestors 'self'", get('/collection-room.html')[2]['Content-Security-Policy'])
+        self.assertIn("frame-ancestors 'none'", get('/')[2]['Content-Security-Policy'])
+        self.assertEqual(self.calls, [])
 
     def test_catalog_image_requires_auth(self):
         conn = http.client.HTTPConnection(self.host, timeout=5)

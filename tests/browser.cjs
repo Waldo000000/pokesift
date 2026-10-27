@@ -191,7 +191,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   const downloadPromise=pp.waitForEvent('download');await pp.locator('#export').click();
   const download=await downloadPromise;const stream=await download.createReadStream();const chunks=[];for await (const chunk of stream) chunks.push(chunk);
   const exported=JSON.parse(Buffer.concat(chunks).toString());
-  assert.equal(exported.backupVersion,3);assert.equal(exported.entries.length,saved.length);
+  assert.equal(exported.backupVersion,4);assert.equal(exported.entries.length,saved.length);
   assert.equal(exported.scanImages[saved[0].id],scanImage);
   assert(exported.entries.some(e=>e.providerObservations?.length));
   assert(exported.entries.some(e=>e.canonicalImage));assert(exported.exchangeRates);
@@ -366,7 +366,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert.equal(retaken.id,originalRetake.id);assert.equal(retaken.status,'matched');assert.equal(retaken.scanHistory.length,1);
   assert.equal(retaken.providerObservations.length,2);assert(retaken.scanHistory[0].scanPhoto.persisted);
   const retakeDownload=rp.waitForEvent('download');await rp.locator('#export').click();const retakeChunks=[];for await(const c of await (await retakeDownload).createReadStream())retakeChunks.push(c);
-  const retakeBackup=JSON.parse(Buffer.concat(retakeChunks));assert.equal(retakeBackup.backupVersion,3);assert.equal(Object.keys(retakeBackup.scanImages).length,2);
+  const retakeBackup=JSON.parse(Buffer.concat(retakeChunks));assert.equal(retakeBackup.backupVersion,4);assert.equal(Object.keys(retakeBackup.scanImages).length,2);
   await retakes.close();
   const restoredRetake=await newContext(),rr=await restoredRetake.newPage();rr.on('dialog',d=>d.accept());
   await rr.route('**/api/identify',()=>{throw Error('Restoring retake history must not scan');});
