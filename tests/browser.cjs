@@ -186,6 +186,51 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert.equal(Object.keys(imageBackup.scanImages).length,1);assert.equal(imageBackup.entries[0].scanPhoto.persisted,false);
   assert.equal(imageBackup.missingScanImages.length,0);
   await noPhotoDB.close();
+  // Multiple valuations: lowest comparable estimate by default, explicit choice persists.
+  const valuations=await newContext(), vp=await valuations.newPage();
+  const multi=fixture('Multiple printings');
+  multi.data.candidates[0].prices=[
+    {printing:'Holofoil',market_price:5,currency:'USD'},
+    {printing:'Normal',market_price:6,currency:'AUD'},
+    {printing:'Reverse Holofoil',market_price:7,currency:'EUR'},
+    {printing:'No sales',market_price:null,currency:'USD'},
+    {printing:'Zero placeholder',market_price:0,currency:'USD'}];
+  let valuationScans=0;
+  await vp.route('**/api/identify',r=>{valuationScans++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(multi)});});
+  await vp.route('**/api/card-image?*',r=>r.fulfill({status:502,body:'{}'}));
+  await vp.goto(`http://127.0.0.1:${port}`);await vp.locator('#open-camera').click();await vp.locator('#photo-input').setInputFiles(photo);
+  await waitFor(()=>vp.locator('#latest-price').textContent().then(t=>t==='A$6.00'));
+  assert.match(await vp.locator('#result-tray').textContent(),/A\$6.00/);
+  await vp.locator('#camera-done').click();
+  assert.match(await vp.locator('#card-grid').textContent(),/A\$6.00.*Lowest estimate/);
+  await vp.locator('.card-tile').click();
+  assert.equal(await vp.locator('#valuation-choice option').count(),4);
+  await vp.locator('#valuation-choice').selectOption({label:'Reverse Holofoil · A$11.67'});
+  await vp.locator('#close-detail').click();
+  assert.match(await vp.locator('#card-grid').textContent(),/A\$11.67/);
+  assert.match(await vp.locator('#card-grid').textContent(),/Your selection/);
+  await vp.reload();await waitFor(()=>vp.locator('#card-grid').textContent().then(t=>t.includes('A$11.67')));
+  const choiceDownload=vp.waitForEvent('download');await vp.locator('#export').click();
+  const choiceChunks=[];for await(const c of await (await choiceDownload).createReadStream())choiceChunks.push(c);
+  const choiceBackup=JSON.parse(Buffer.concat(choiceChunks));
+  assert(choiceBackup.entries[0].selectedPriceKey);
+  assert.deepEqual(choiceBackup.entries[0].providerObservations[0].response,multi);
+  // Restore into a different browser profile, with reordered quotes and an updated price.
+  choiceBackup.entries[0].result.data.candidates[0].prices.reverse();
+  choiceBackup.entries[0].result.data.candidates[0].prices.find(p=>p.printing==='Reverse Holofoil').market_price=9;
+  const choiceRestore=await newContext(), cr=await choiceRestore.newPage();cr.on('dialog',d=>d.accept());
+  await cr.route('**/api/identify',()=>{throw Error('Restoring a valuation must not scan');});
+  await cr.goto(`http://127.0.0.1:${port}`);
+  await cr.locator('#backup-file').setInputFiles({name:'choice.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(choiceBackup))});
+  await waitFor(()=>cr.locator('#card-grid').textContent().then(t=>t.includes('A$15.00')));
+  await cr.locator('.card-tile').click();await cr.locator('#valuation-choice').selectOption('');await cr.locator('#close-detail').click();
+  assert.match(await cr.locator('#card-grid').textContent(),/A\$6.00/);
+  assert.match(await cr.locator('#card-grid').textContent(),/Lowest estimate/);
+  // Missing FX must not choose an arbitrary mixed-currency minimum.
+  assert.equal(await cr.evaluate(()=>{fx=null;return mainPrice(entries[0]);}),null);
+  assert.equal(await cr.evaluate(()=>{const e=structuredClone(entries[0]);e.result.data.candidates[0].prices=[{market_price:10,currency:'USD'},{market_price:2,currency:'USD'}];return mainPrice(e).market_price;}),2);
+  assert.equal(valuationScans,1);
+  await choiceRestore.close();await valuations.close();
   console.log('PASS: queued uploads, concurrency=2, out-of-order results, uninterrupted capture, browse during scans, details, persistence, filters, camera capture/release, interrupted reload, storage quota handling. Zero real scans.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exit(1)});

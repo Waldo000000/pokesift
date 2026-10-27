@@ -81,7 +81,7 @@ function valueLabel(e) {
   const price = mainPrice(e);
   if (price) return priceText(price);
   if (busyStates.has(e.status)) return '';
-  return e.status === 'matched' && cardOf(e)?.prices?.length > 1 ? 'View printing values' : 'Value unknown';
+  return availablePrices(e).length ? 'AUD unavailable' : 'Value unknown';
 }
 function element(tag, className, text) {
   const el = document.createElement(tag); if (className) el.className = className;
@@ -120,12 +120,28 @@ async function refreshFx() {
   } catch { fxFailed = true; }
   finally { clearTimeout(timeout); fxLoading = false; render(); }
 }
-function mainPrice(e) {
-  if (e.status !== 'matched') return null;
-  const card = cardOf(e), prices = card?.prices;
-  if (!Array.isArray(prices)) return null;
-  return prices.find(p => p.printing === card.suggested_printing) || (prices.length === 1 ? prices[0] : null);
+function availablePrices(e) {
+  return e.status === 'matched' && Array.isArray(cardOf(e)?.prices)
+    ? cardOf(e).prices.filter(p => p.market_price != null && Number.isFinite(Number(p.market_price)) && Number(p.market_price) > 0) : [];
 }
+// Identify the quote by its printing/condition/source, not its changing amount or position.
+const priceKey = p => JSON.stringify([p.printing || '',p.condition || '',currencyOf(p),p.source || '',p.variant || '',p.grading || null]);
+function chosenPrice(e) { return availablePrices(e).find(p => priceKey(p) === e.selectedPriceKey); }
+function mainPrice(e) {
+  const prices = availablePrices(e), chosen = chosenPrice(e);
+  if (chosen) return chosen;
+  if (!prices.length) return null;
+  // Same-currency quotes can still be ranked while exchange rates are unavailable.
+  const sameCurrency = prices.every(p => currencyOf(p) === currencyOf(prices[0]));
+  if (!sameCurrency && prices.some(p => audAmount(p) === null)) return null;
+  const amount = p => sameCurrency ? Number(p.market_price) : audAmount(p);
+  return prices.reduce((lowest,p) => amount(p) < amount(lowest) ? p : lowest);
+}
+function priceBasis(e) {
+  if (availablePrices(e).length < 2) return '';
+  return chosenPrice(e) ? 'Your selection' : mainPrice(e) ? 'Lowest estimate' : '';
+}
+
 function render() {
   const inProgress = entries.filter(e => busyStates.has(e.status)).length;
   $('fx-refresh').textContent = fxLabel() + ' ↻'; $('fx-refresh').disabled = fxLoading;
@@ -146,12 +162,13 @@ function render() {
   const focusHost = document.activeElement?.parentElement?.id;
   const grid = $('card-grid'); grid.replaceChildren();
   for (const e of shown) {
-    const button = element('button','card-tile'); button.dataset.entry = e.id; button.setAttribute('aria-label', `${titleOf(e)}, ${statusOf(e)}`);
+    const button = element('button','card-tile'); button.dataset.entry = e.id; button.setAttribute('aria-label', `${titleOf(e)}, ${valueLabel(e) || statusOf(e)}`);
     const photo = element('div','card-image'); photo.append(imageOf(e),badge(e)); button.append(photo);
     button.append(element('h3','',titleOf(e)),element('p','card-sub',identityOf(e).set || statusOf(e)));
-    const bottom = element('div','card-bottom'), price = mainPrice(e);
+    const bottom = element('div','card-bottom');
     const value = element('span','card-price',valueLabel(e));
     bottom.append(value,element('span','card-number',identityOf(e).number || '')); button.append(bottom);
+    if (priceBasis(e)) button.append(element('small','price-basis',priceBasis(e)));
     button.addEventListener('click',() => openDetail(e.id)); grid.append(button);
   }
   const recent = entries.filter(e => sessionIds.has(e.id));
@@ -160,11 +177,11 @@ function render() {
   $('queue-state').textContent = inProgress ? `${inProgress} in progress` : recent.length ? 'All caught up' : 'Ready when you are';
   const tray = $('result-tray'); const scroll = tray.scrollLeft; tray.replaceChildren();
   for (const e of recent) {
-    const button = element('button','tray-card'); button.dataset.entry = e.id; button.setAttribute('aria-label', `${titleOf(e)}, ${statusOf(e)}`);
+    const button = element('button','tray-card'); button.dataset.entry = e.id; button.setAttribute('aria-label', `${titleOf(e)}, ${valueLabel(e) || statusOf(e)}`);
     button.append(imageOf(e),element('span','',titleOf(e)));
     const price = mainPrice(e);
     if (price && Number(price.market_price) > 0) {
-      button.append(element('strong','tray-value',priceText(price)),element('small','',fxFailed || fx?.stale ? 'AUD · cached rate' : 'Est. market value'));
+      button.append(element('strong','tray-value',priceText(price)),element('small','',priceBasis(e) || (fxFailed || fx?.stale ? 'AUD · cached rate' : 'Est. market value')));
     } else { button.append(element('small','',valueLabel(e) || statusOf(e))); }
     button.addEventListener('click',() => openDetail(e.id)); tray.append(button);
   }
@@ -172,7 +189,7 @@ function render() {
   if (focus && focusHost) [...($(focusHost)?.children || [])].find(node => node.dataset.entry === focus)?.focus({preventScroll:true});
   if ($('detail-view').open && focusedId) renderDetail();
   const latest = entries.find(e => e.id === $('latest-find').dataset.entry);
-  if (latest && !$('latest-find').hidden) { const p = mainPrice(latest); $('latest-price').textContent = valueLabel(latest); $('latest-currency').textContent = p ? fxLabel() : 'Tap below for details'; }
+  if (latest && !$('latest-find').hidden) { const p = mainPrice(latest); $('latest-price').textContent = valueLabel(latest); $('latest-printing').textContent = p?.printing || identityOf(latest).number || statusOf(latest); $('latest-currency').textContent = p ? [priceBasis(latest),fxLabel()].filter(Boolean).join(' · ') : 'Tap below for details'; }
 }
 function renderDetail() {
   const e = entries.find(e => e.id === focusedId); if (!e) return;
@@ -188,6 +205,16 @@ function renderDetail() {
   $('detail-message').textContent = message; $('detail-message').hidden = !message;
   const prices = $('detail-prices'); prices.replaceChildren();
   const rows = e.status === 'matched' && Array.isArray(card?.prices) ? card.prices : [];
+  const choices = availablePrices(e), picker = $('valuation-choice');
+  $('valuation-choice-group').hidden = choices.length < 2;
+  picker.replaceChildren();
+  const automatic = element('option','','Automatic · lowest available value'); automatic.value = ''; picker.append(automatic);
+  for (const p of choices) {
+    const option = element('option','',[p.printing || 'Printing unspecified',p.condition,priceText(p)].filter(Boolean).join(' · '));
+    option.value = priceKey(p); picker.append(option);
+  }
+  picker.value = chosenPrice(e) ? e.selectedPriceKey : '';
+  $('valuation-choice-note').textContent = chosenPrice(e) ? 'Your choice is used throughout your collection.' : 'Until you choose, we show the lowest available estimate. This does not confirm the printing.';
   for (const p of rows) {
     const row = element('div','price-row'), top = element('div');
     top.append(element('span','',p.printing || 'Printing unspecified'),element('strong','',priceText(p)));
@@ -208,6 +235,12 @@ function renderDetail() {
   $('raw-details').hidden = busyStates.has(e.status);
   $('remove-card').disabled = busyStates.has(e.status);
 }
+$('valuation-choice').onchange = event => {
+  const e = entries.find(e => e.id === focusedId); if (!e) return;
+  if (event.target.value) e.selectedPriceKey = event.target.value;
+  else delete e.selectedPriceKey;
+  save(); render();
+};
 function openDetail(id) { focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) $('detail-view').showModal(); }
 $('toggle-photo').onclick = () => { showCapturedPhoto = !showCapturedPhoto; renderDetail(); };
 $('close-detail').onclick = () => $('detail-view').close();
@@ -261,9 +294,9 @@ function showLatestFind(e) {
   $('latest-photo').src = e.canonicalImage || e.thumbnail;
   $('latest-name').textContent = titleOf(e);
   $('latest-heading').textContent = e.status === 'matched' ? 'JUST FOUND' : 'SAVED FROM PHOTO';
-  $('latest-printing').textContent = cardOf(e)?.suggested_printing || identityOf(e).number || statusOf(e);
+  $('latest-printing').textContent = price?.printing || identityOf(e).number || statusOf(e);
   $('latest-price').textContent = valueLabel(e);
-  $('latest-currency').textContent = price ? fxLabel() : 'Tap below for details';
+  $('latest-currency').textContent = price ? [priceBasis(e),fxLabel()].filter(Boolean).join(' · ') : 'Tap below for details';
   const banner = $('latest-find'); banner.dataset.entry = e.id; banner.hidden = false;
   banner.classList.remove('arrived'); void banner.offsetWidth; banner.classList.add('arrived');
   clearTimeout(latestTimer); latestTimer = setTimeout(() => { banner.hidden = true; },7000);
