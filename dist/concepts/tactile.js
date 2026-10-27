@@ -28,31 +28,32 @@
   function freeSleeve(key){let slot=layout.slots.findIndex((k,i)=>!k&&i>=page*9&&i<(page+pageStep())*9);if(slot<0)slot=layout.slots.indexOf(null);if(slot<0){slot=layout.slots.length;layout.slots.push(...Array(18).fill(null));}page=Math.floor(Math.floor(slot/9)/pageStep())*pageStep();place(key,slot);}
 
   // One pointer-driven fan is shared by the full browser and Pokémon details.
-  function makeFan(host,list,{initialIndex=0,onChange=()=>{},onOpen=cardDetail}={}) {
+  function makeFan(host,list,{initialIndex=Math.max(0,list.length-1),onChange=()=>{},onOpen=cardDetail}={}) {
     const controller=new AbortController(),signal=controller.signal;
-    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,velocity=0,frame=0,gesture=null,lastLabel=-1;
+    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,velocity=0,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0;
     host.classList.add('tactile-fan');host.replaceChildren();
     const buttons=list.map((c,i)=>{const b=document.createElement('button');b.className='fan-card';b.dataset.fanIndex=i;b.setAttribute('aria-label',c.name+', '+money(c.value));b.innerHTML=`<img src="${img(c)}" alt="${c.name} ${c.edition}" draggable="false"><span class="fan-price">${money(c.value)}</span>`;b.onclick=e=>{if(e.detail===0){if(Math.round(position)===i)onOpen(c);else go(i);}};host.append(b);return b;});
     const step=()=>host.clientWidth<500?105:145;
     function paint(){
       const mobile=host.clientWidth<500,selected=Math.max(0,Math.min(list.length-1,Math.round(position)));
       const cardWidth=buttons[0]?.offsetWidth||180,spacing=mobile?30:43;
-      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),opening=Math.max(0,Math.min(1,d)),gap=cardWidth*.88,offset=d*spacing+opening*gap;
+      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),opening=Math.max(0,Math.min(1,d)),gap=cardWidth*.88*reveal,offset=d*spacing+opening*gap;
         b.style.transform=`translateX(calc(-50% + ${offset}px)) translateY(${Math.min(a,6)*5}px) rotate(${Math.max(-5,Math.min(5,d))*3}deg)`;b.style.opacity='1';b.style.zIndex=String(i+1);b.style.visibility=a>6?'hidden':'visible';b.style.pointerEvents=a>6?'none':'auto';b.classList.toggle('selected',i===selected);b.tabIndex=i===selected?0:-1;b.setAttribute('aria-pressed',String(i===selected));b.querySelector('.fan-price').style.opacity=String(Math.max(0,1-a*2));});
-      host.dataset.position=position.toFixed(3);
+      host.dataset.position=position.toFixed(3);host.dataset.reveal=reveal.toFixed(3);
       if(selected!==lastLabel){lastLabel=selected;onChange(selected,list[selected]);}
     }
+    function revealTo(next){cancelAnimationFrame(revealFrame);if(reduced()){reveal=next;paint();return;}const from=reveal,started=performance.now(),duration=next===1?280:110;function tick(now){const t=Math.min(1,(now-started)/duration);reveal=from+(next-from)*(1-Math.pow(1-t,3));paint();if(t<1)revealFrame=requestAnimationFrame(tick);else revealFrame=0;}revealFrame=requestAnimationFrame(tick);}
     function go(next){target=Math.max(0,Math.min(list.length-1,next));cancelAnimationFrame(frame);if(reduced()){position=target;velocity=0;paint();return;}let previous=performance.now();
       function spring(now){const dt=Math.min(.025,(now-previous)/1000);previous=now;velocity+=(target-position)*240*dt;velocity*=Math.exp(-25*dt);position+=velocity*dt;paint();if(Math.abs(target-position)<.001&&Math.abs(velocity)<.01){position=target;velocity=0;paint();frame=0;}else frame=requestAnimationFrame(spring);}
       frame=requestAnimationFrame(spring);
     }
     host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length)return;cancelAnimationFrame(frame);velocity=0;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,lastX:e.clientX,lastTime:performance.now(),speed:0,moved:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
-    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,now=performance.now();if(Math.abs(dx)>4)gesture.moved=true;const dt=Math.max(8,now-gesture.lastTime);gesture.speed=.6*gesture.speed+.4*(e.clientX-gesture.lastX)/dt;gesture.lastX=e.clientX;gesture.lastTime=now;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);position=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;paint();},{signal});
-    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){const speed=performance.now()-g.lastTime>120?0:g.speed;velocity=-speed/step()*1000;go(Math.round(position+Math.max(-1.5,Math.min(1.5,velocity*.09))));}else {go(Math.round(position));if(g.card>=0){if(g.card===Math.round(position))onOpen(list[g.card]);else go(g.card);}}e.preventDefault();}
+    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,now=performance.now();if(Math.abs(dx)>4&&!gesture.moved){gesture.moved=true;revealTo(.12);}const dt=Math.max(8,now-gesture.lastTime);gesture.speed=.6*gesture.speed+.4*(e.clientX-gesture.lastX)/dt;gesture.lastX=e.clientX;gesture.lastTime=now;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);position=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;paint();},{signal});
+    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;revealTo(1);host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){const speed=performance.now()-g.lastTime>120?0:g.speed;velocity=-speed/step()*1000;go(Math.round(position+Math.max(-1.5,Math.min(1.5,velocity*.09))));}else {go(Math.round(position));if(g.card>=0){if(g.card===Math.round(position))onOpen(list[g.card]);else go(g.card);}}e.preventDefault();}
     host.addEventListener('pointerup',e=>release(e),{signal});host.addEventListener('pointercancel',e=>release(e,true),{signal});host.addEventListener('lostpointercapture',e=>{if(gesture)release(e,true);},{signal});
     host.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();go(target+(e.key==='ArrowRight'?1:-1));}},{signal});
     const observer=new ResizeObserver(paint);observer.observe(host);paint();
-    return {go,step:delta=>go(target+delta),destroy(){cancelAnimationFrame(frame);controller.abort();observer.disconnect();},get selected(){return Math.round(position);}};
+    return {go,step:delta=>go(target+delta),destroy(){cancelAnimationFrame(frame);cancelAnimationFrame(revealFrame);controller.abort();observer.disconnect();},get selected(){return Math.round(position);}};
   }
 
   const aside=$('binder-layout').querySelector('.binder-aside');
@@ -77,7 +78,7 @@
   renderCards=function(){
     if(theme==='desk'){
       const list=filtered();$('no-cards').hidden=!!list.length;mainFan?.destroy();
-      mainFan=makeFan($('card-fan'),list,{initialIndex:Math.min(index,Math.max(0,list.length-1)),onChange:(i,c)=>{index=i;$('fan-name').textContent=c?.name||'No cards here yet';$('fan-meta').textContent=c?[c.type,c.set,c.edition].join(' · '):'';$('fan-position').textContent=c?`${i+1} / ${list.length} CARDS`:'';$('fan-prev').disabled=i<=0;$('fan-next').disabled=i>=list.length-1;}});$('thumbnail-rail').replaceChildren();return;
+      mainFan=makeFan($('card-fan'),list,{initialIndex:mainFan?Math.min(index,Math.max(0,list.length-1)):Math.max(0,list.length-1),onChange:(i,c)=>{index=i;$('fan-name').textContent=c?.name||'No cards here yet';$('fan-meta').textContent=c?[c.type,c.set,c.edition].join(' · '):'';$('fan-position').textContent=c?`${i+1} / ${list.length} CARDS`:'';$('fan-prev').disabled=i<=0;$('fan-next').disabled=i>=list.length-1;}});$('thumbnail-rail').replaceChildren();return;
     }
     reconcile();page=Math.floor(Math.max(0,Math.min(page,layout.slots.length/9-1))/pageStep())*pageStep();$('no-cards').hidden=true;renderBook();
     layout.piles.forEach((pileKeys,stack)=>{const pile=$(stack?'card-pile-1':'card-pile');pile.replaceChildren();pile.classList.toggle('empty',!pileKeys.length);pileKeys.forEach((key,i)=>{const c=cards.find(c=>c.key===key),b=document.createElement('button');b.className='piled-card';b.dataset.cardKey=key;b.setAttribute('aria-label',c.name+' on stack '+(stack+1)+'. Drag into an empty sleeve or the other stack.');b.style.setProperty('--pile-angle',((i*7)%13-6)+'deg');b.style.setProperty('--pile-x',((i*3)%9-4)+'px');b.style.setProperty('--pile-y',Math.min(i,14)*2+'px');b.style.zIndex=i+1;const top=i===pileKeys.length-1;b.disabled=!top;b.tabIndex=top?0:-1;b.setAttribute('aria-hidden',String(!top));b.innerHTML=`<img src="${img(c)}" alt="${c.name}" draggable="false">`;b.onclick=e=>{if(e.detail===0&&top)cardDetail(c);};pile.append(b);});$('pile-count-'+stack).textContent=pileKeys.length;});
@@ -124,7 +125,7 @@
     if(d.inSleeve&&!d.extracted){const origin=d.source.getBoundingClientRect(),up=Math.max(0,origin.top+d.grabY-e.clientY);Object.assign(d.ghost.style,{left:origin.left+'px',top:(origin.top-up)+'px',transform:'none'});Object.assign(d.glass.style,{left:origin.left-4+'px',top:origin.top+7+'px',width:origin.width+8+'px',height:origin.height-3+'px'});if(up>=origin.height+8){d.extracted=true;d.grabX=e.clientX-origin.left;d.grabY=e.clientY-(origin.top-up);d.ghost.dataset.free='true';}}
     else {Object.assign(d.ghost.style,{left:(e.clientX-d.grabX)+'px',top:(e.clientY-d.grabY)+'px',transform:`rotate(${Math.max(-5,Math.min(5,dx*.015))}deg) scale(1.025)`});d.ghost.dataset.free='true';}
     document.querySelectorAll('.drop-ready,.drop-blocked').forEach(n=>n.classList.remove('drop-ready','drop-blocked'));
-    if(d.extracted){if(d.glass){d.glass.remove();d.glass=null;}Object.assign(d.ghost.style,{width:d.rect.width+'px',height:d.rect.height+'px'});const hit=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot],[data-pile-drop]');if(hit){const blocked=hit.hasAttribute('data-slot')&&layout.slots[Number(hit.dataset.slot)];hit.classList.add(blocked?'drop-blocked':'drop-ready');}}
+    if(d.extracted){if(d.glass){d.glass.remove();d.glass=null;}Object.assign(d.ghost.style,{width:d.rect.width+'px',height:d.rect.height+'px'});const hit=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot],[data-pile-drop]');if(hit){const blocked=hit.hasAttribute('data-slot')&&layout.slots[Number(hit.dataset.slot)];if(!blocked)hit.classList.add('drop-ready');}}
   }
   table.addEventListener('pointerdown',e=>{const source=e.target.closest('[data-card-key]');if(!source||source.disabled||e.button!==0||turn||drag)return;const rect=source.getBoundingClientRect(),inSleeve=!!source.closest('.physical-pocket');drag={id:e.pointerId,key:source.dataset.cardKey,source,rect,x:e.clientX,y:e.clientY,grabX:e.clientX-rect.left,grabY:e.clientY-rect.top,moved:false,inSleeve,extracted:!inSleeve,last:{clientX:e.clientX,clientY:e.clientY}};table.setPointerCapture(e.pointerId);
     function scroll(){if(!drag)return;if(drag.moved&&drag.inSleeve&&!drag.extracted&&drag.last.clientY<55&&window.scrollY>0){window.scrollBy(0,-8);updateExtraction(drag.last);}drag.scrollFrame=requestAnimationFrame(scroll);}drag.scrollFrame=requestAnimationFrame(scroll);
