@@ -10,7 +10,8 @@ A camera-first Pokémon collection app: scan cards in succession, watch their va
 2. Open **Add cards** and take photos repeatedly, or select several existing photos. Up to two scans run concurrently; results and values appear in the camera tray without interrupting capture.
 3. Close the camera to browse, search and review your collection. Closing the camera stops video capture but lets queued scans finish; keep the page open until they complete.
 4. Review uncertain Chinese printing matches and confirm the correct card. Unsupported or unpriced cards stay in the collection with **Value unknown** and the identification details available so far.
-5. Use **Back up collection** regularly. Collections belong to this browser; pairing another device does not synchronize them.
+5. For **Retake suggested**, choose **Retake photo** on the collection card or in its details. The next capture updates that entry; opening or cancelling the camera uses no scan. Submitting a new photo uses one scan. Previous captures and provider responses remain in the backup.
+6. Use **Back up collection** regularly. Collections belong to this browser; pairing another device does not synchronize them.
 
 Matched cards show a value directly in the collection and camera tray. Where multiple positive quotes exist, the default is the lowest estimate. The card detail selector lets you choose a particular printing/condition quote instead; that choice survives price changes, reloads and backups. Unconfirmed candidates never supply a valuation. Prices are catalog references, not an assessment of the physical card's condition, grade or authenticity.
 
@@ -42,15 +43,19 @@ Rates refresh on page load, on return after six hours, or through the footer ref
 
 ### Updating missing prices
 
-**Update missing prices** appears above the collection, with an explanation when no cards are eligible. It works on confirmed PikaQian cards and uses saved provider card IDs to fetch prices directly, with no recognition scan, catalog search or image download. Duplicate copies share one lookup; cards with positive quotes and unconfirmed matches are skipped.
+**Update missing prices** appears above the collection, with an explanation when no cards are eligible. It covers both confirmed PikaQian cards and older unsupported, not-found or ambiguous scans that saved a Pokémon name and collector number. No photo is resubmitted.
+
+Confirmed cards use their saved provider IDs for a direct price lookup. Older unrecognized cards first search the Chinese catalog using their saved details; this can involve several catalog requests and a canonical image download. Exact matches can be priced immediately. Uncertain matches stay in **To review** for confirmation; their candidates are not treated as the user’s card. Cards without enough saved identification data cannot be looked up automatically.
+
+Duplicate provider IDs or identical saved lookup details share a request. Positive quotes and candidates already awaiting confirmation are skipped. Pricing-access failures preserve any newly found card details before stopping the batch.
 
 | Safeguard | Behaviour |
 | --- | --- |
-| Batch size and pacing | At most 25 distinct printings per run, sequentially, with a two-second pause between requests. |
+| Batch size and pacing | At most 25 distinct saved lookups per run, sequentially, with a two-second pause between lookups. |
 | Retries | None. Reload never resumes a batch. |
 | Immediate stops | Access, plan, configuration or rate-limit errors; an open provider circuit; or a request timeout. |
 | Other errors | Stop after three consecutive failures or five failures in total. |
-| No recorded sales | Save the result and skip that printing for 24 hours, including duplicate copies and after reload/restore. |
+| No recorded sales or catalog match | Save the result and skip the same lookup for 24 hours, including duplicate copies and after reload/restore. |
 | User control | Inline progress and **Stop update**; the current request can finish and save, then no further calls begin. |
 | Interrupted use | Hiding the page, signing out, another tab changing the collection, or a storage failure stops further work. |
 
@@ -66,9 +71,9 @@ There is no collection database or cloud synchronization. Data stays in the curr
 | IndexedDB `pokesift-media`, store `scan-images` | The exact prepared image uploaded for each new scan, up to 2048 pixels / 8 MB. This is not the original full-resolution camera file. |
 | localStorage `pokesift.fx.v1` | Cached exchange rates and their provenance. |
 
-**Back up collection** downloads a version 2 JSON backup combining both storage systems and the rate cache. It includes archived scan images and a `missingScanImages` list for any expected images that could not be recovered. Passwords, session cookies and invites are excluded.
+**Back up collection** downloads a version 3 JSON backup combining both storage systems and the rate cache. It includes current and previous retake images, capture history, and a `missingScanImages` list for any expected images that could not be recovered. Passwords, session cookies and invites are excluded.
 
-**Restore backup** accepts version 1 and 2 backups, up to 250 MB / 1,000 entries. It merges by entry ID, skips existing card records and can fill missing archived images. Pending scans become interrupted records. Restore makes no identification or catalog-image requests. Keep the original file until the restored collection is verified.
+**Restore backup** accepts version 1, 2 and 3 backups, up to 250 MB / 1,000 entries. It merges by entry ID, skips existing card records and can fill missing archived images. Pending scans become interrupted records. Restore makes no identification or catalog-image requests. Keep the original file until the restored collection is verified.
 
 Saved identifiers, raw server-redacted provider observations and archived uploads can support a future database migration or another provider without photographing cards again. Older entries only have the images retained when they were created; lost resolution cannot be recovered. A new paid processing operation would still consume that provider's allowance.
 
@@ -148,7 +153,7 @@ node --check dist/auth.js
 npm run test:browser
 ```
 
-Tests use fake credentials and mocked upstream responses. The browser suite starts a temporary local server and covers capture queues, mobile layout, result arrivals, valuation choices, currencies, Chinese matching, bulk pricing, storage failures and backup/restore. [GitHub Actions](.github/workflows/checks.yml) runs the Python, JavaScript syntax and browser checks.
+Tests use fake credentials and mocked upstream responses. The browser suite starts a temporary local server and covers capture queues, mobile layout, result arrivals, valuation choices, currencies, Chinese matching, bulk pricing, storage failures and backup/restore, older-card enrichment and retake history. [GitHub Actions](.github/workflows/checks.yml) runs the Python, JavaScript syntax and browser checks.
 
 PikaQian pricing is tested against schema-based fixtures. The live key was on Free during initial integration verification; a real pricing-enabled response still needs verification after an account upgrade.
 

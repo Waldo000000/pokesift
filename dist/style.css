@@ -15,3 +15,4 @@ body:not([data-auth="signed-in"]) #collection-view,body:not([data-auth="signed-i
 .catalog-preview{display:block;width:150px;max-height:210px;object-fit:contain;margin:0 auto 12px;border-radius:8px}
 
 .bulk-pricing{border-bottom:1px solid var(--line);padding:10px 0 14px}.bulk-pricing>div{display:flex;gap:20px;flex-wrap:wrap}.bulk-pricing .fineprint{margin:8px 0 0}.bulk-pricing button:disabled{cursor:default}
+.retake-button{margin-top:8px;min-height:44px}.retake-note{margin:0;padding:0 22px 12px;color:#dce7cc;font-size:12px;line-height:1.5}.camera-dialog:has(#retake-note:not([hidden])) .camera-stage{min-height:140px}

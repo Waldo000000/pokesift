@@ -10,6 +10,7 @@ let latestTimer, showCapturedPhoto = false;
 let focusedId = null, preparing = Promise.resolve(), readOnlyStorage = false, toastTimer;
 const jobs = [], sessionIds = new Set();
 let priceBatch = {running:false,message:''};
+let retakeId=null, retakePreparing=false, unsavedCollection=false;
 
 function notify(message) {
   const toast = $('toast');
@@ -20,13 +21,15 @@ function notify(message) {
 }
 function storageWarning(message) { $('storage-warning').textContent = message; $('storage-warning').hidden = false; }
 function save() {
-  if (readOnlyStorage) return false;
+  if (readOnlyStorage) {unsavedCollection=true;return false;}
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({version: 1, entries}));
     $('storage-warning').hidden = true;
     $('saved-note').textContent = 'Saved in this browser. No cloud sync.';
+    unsavedCollection=false;
     return true;
   } catch {
+    unsavedCollection=true;
     storageWarning('Your browser could not save the latest changes. Keep this page open and export your collection before leaving. Removing cards may free up space.');
     $('saved-note').textContent = 'Unsaved changes — export before leaving.';
     return false;
@@ -147,7 +150,7 @@ function render() {
   renderBulkPrices();
   const inProgress = entries.filter(e => busyStates.has(e.status)).length;
   $('fx-refresh').textContent = fxLabel() + ' ↻'; $('fx-refresh').disabled = fxLoading;
-  const transientPhotos = entries.some(e => e.scanPhoto && !e.scanPhoto.persisted);
+  const transientPhotos = mediaRecords(entries).some(e => e.scanPhoto && !e.scanPhoto.persisted);
   $('photo-storage-warning').hidden = !transientPhotos;
   $('photo-storage-warning').textContent = 'Some scan-quality photos could not be saved on this device. Back up your collection before closing this page to keep them for future recognition services.';
   $('all-count').textContent = entries.length;
@@ -172,7 +175,12 @@ function render() {
     bottom.append(value,element('span','card-number',identityOf(e).number || '')); button.append(bottom);
     if (priceBasis(e)) button.append(element('small','price-basis',priceBasis(e)));
     button.addEventListener('click',() => openDetail(e.id));
-    if(e.catalogMatch){const wrapper=element('div','catalog-tile');wrapper.append(button,catalogLink(e));grid.append(wrapper);}else grid.append(button);
+    if(e.catalogMatch || e.status==='retake') {
+      const wrapper=element('div','catalog-tile');wrapper.append(button);
+      if(e.catalogMatch)wrapper.append(catalogLink(e));
+      if(e.status==='retake') {const retake=element('button','text-button retake-button','Retake photo ↗');retake.disabled=readOnlyStorage;retake.onclick=()=>startRetake(e.id);wrapper.append(retake);}
+      grid.append(wrapper);
+    } else grid.append(button);
   }
   const recent = entries.filter(e => sessionIds.has(e.id));
   $('session-count').textContent = recent.length;
@@ -202,6 +210,7 @@ function renderDetail() {
   $('toggle-photo').hidden = !e.canonicalImage; $('toggle-photo').textContent = showCapturedPhoto ? 'View catalog image' : 'View your photo'; $('detail-photo').alt = titleOf(e);
   $('detail-image-note').textContent = e.canonicalImage && !showCapturedPhoto ? `Catalog image · ${e.catalogMatch ? 'PikaQian' : 'TCGPlayer'}` : e.status === 'matched' ? 'Your photo' : 'Your photo · no verified catalog image';
   $('detail-badge').textContent = statusOf(e);
+  $('retake-card').hidden=e.status!=='retake';$('retake-card').disabled=readOnlyStorage;
   $('detail-title').textContent = titleOf(e);
   $('detail-set').textContent = identityOf(e).set || 'YOUR CAPTURE';
   $('detail-meta').textContent = [identityOf(e).number,card?.rarity,card?.suggested_printing || readOf(e).finish,readOf(e).stamp,languageOf(e)].filter(Boolean).join(' · ');
@@ -236,7 +245,7 @@ function renderDetail() {
   renderEnrichment(e);
   $('detail-warnings').replaceChildren();
   for (const warning of Array.isArray(payload?.warnings) ? payload.warnings : []) $('detail-warnings').append(element('p','notice',String(warning)));
-  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
+  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,scanHistory:e.scanHistory || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
   $('raw-details').hidden = busyStates.has(e.status);
   $('remove-card').disabled = busyStates.has(e.status);
 }
@@ -253,7 +262,8 @@ $('detail-view').addEventListener('close',() => { focusedId = null; });
 $('remove-card').onclick = () => {
   const entry = entries.find(e => e.id === focusedId); if (!entry || busyStates.has(entry.status)) return;
   if (!confirm('Remove this card from this device’s collection?')) return;
-  PokeSiftPhotos.remove(focusedId);
+  const removed=entries.find(e=>e.id===focusedId);
+  for(const id of [focusedId,...(removed?.scanHistory || []).map(h=>h.id)])PokeSiftPhotos.remove(id);
   entries = entries.filter(e => e.id !== focusedId); $('detail-view').close(); save(); render(); notify('Card removed.');
 };
 
@@ -276,18 +286,35 @@ async function preparePhoto(file) {
 }
 let pendingPreparation = 0;
 function addFiles(files) {
+  const replacingId=retakeId;
+  if(replacingId) {if(retakePreparing)return;files=files.slice(0,1);}
   for (const file of files) {
     if (pendingPreparation + jobs.length + active >= 20) { notify('The queue is full. Let a few cards finish before adding more.'); break; }
+    if(replacingId)retakePreparing=true;
     pendingPreparation++;
     preparing = preparing.then(async() => {
       try {
         const {blob,thumbnail} = await preparePhoto(file);
-        const e = {id:crypto.randomUUID(),createdAt:new Date().toISOString(),status:'queued',thumbnail};
+        if(readOnlyStorage)throw new Error('Another tab changed the collection. Reload before retaking or adding cards.');
+        let e;
+        if(replacingId) {
+          e=entries.find(item=>item.id===replacingId);
+          if(!e || e.status!=='retake')throw new Error('This card changed. Open it again before retaking.');
+          retainHistoricalEvidence(e);
+          const oldPhoto=await PokeSiftPhotos.get(e.id),history={id:crypto.randomUUID(),thumbnail:e.thumbnail,capturedAt:e.lastCapturedAt || e.createdAt,result:structuredClone(e.result || null)};
+          if(oldPhoto)history.scanPhoto={id:history.id,mime:oldPhoto.type,bytes:oldPhoto.size,quality:'exact_upload',persisted:await PokeSiftPhotos.put(history.id,oldPhoto)};
+          else if(e.scanPhoto)history.scanPhoto={...e.scanPhoto,id:history.id,persisted:false};
+          e.scanHistory=[...(e.scanHistory || []),history];e.lastCapturedAt=new Date().toISOString();
+          e.status='queued';e.thumbnail=thumbnail;e.message='';
+          delete e.result;delete e.catalogMatch;delete e.enrichment;delete e.priceCheck;delete e.selectedPriceKey;delete e.canonicalImage;
+        } else e={id:crypto.randomUUID(),createdAt:new Date().toISOString(),status:'queued',thumbnail};
         const persisted = await PokeSiftPhotos.put(e.id,blob);
         e.scanPhoto = {id:e.id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted};
-        entries.unshift(e); sessionIds.add(e.id); jobs.push({id:e.id,blob}); save(); render(); pump();
+        if(!replacingId)entries.unshift(e);
+        else {retakeId=null;renderRetakeMode();}
+        sessionIds.add(e.id); jobs.push({id:e.id,blob}); save(); render(); pump();
       } catch(error) { notify(error.message || 'That photo could not be opened. Try a different image.'); }
-      finally { pendingPreparation--; }
+      finally { pendingPreparation--;if(replacingId)retakePreparing=false; }
     });
   }
 }
@@ -355,12 +382,22 @@ function canEnrich(e) {
   const read = readOf(e);
   return Boolean((e.catalogMatch || ['unsupported','not_found','ambiguous'].includes(e.status)) && read.name && /^\d{1,4}(?:\/\d{1,4})?$/.test(read.number || '') && (!read.game || read.game === 'pokemon'));
 }
-function applyCatalogMatch(e, candidate, confirmedBy) {
+function applyCatalogMatch(e, candidate, confirmedBy, loadImage=true) {
   e.catalogMatch = {card:candidate.card,confirmedBy,confirmedAt:new Date().toISOString()};
   e.status = 'matched'; e.message = ''; e.currencyAssumed = false; delete e.selectedPriceKey;
   if(candidate.previewImage)e.canonicalImage=candidate.previewImage;else delete e.canonicalImage;
   e.enrichment.status = 'matched';
-  save(); render(); showLatestFind(e); if(!e.canonicalImage)cacheCanonicalImage(e);
+  save(); render(); showLatestFind(e); if(loadImage && !e.canonicalImage)cacheCanonicalImage(e);
+}
+function storeCatalogResult(e, result, loadImages=true) {
+  e.enrichment = {...structuredClone(result),checkedAt:new Date().toISOString()};
+  e.providerObservations = [...(e.providerObservations || []),...result.candidates.map(c=>structuredClone(c.observation))];
+  const previous = e.enrichment.candidates.find(c=>c.card.provider_id===e.catalogMatch?.card.provider_id);
+  if (previous) {
+    e.catalogMatch.card = previous.card; e.currencyAssumed=false; e.enrichment.status='matched';
+    if(loadImages)cacheCanonicalImage(e);
+  } else if (result.status === 'matched' && result.candidates.length === 1) applyCatalogMatch(e,e.enrichment.candidates[0],'catalog_fields',loadImages);
+  else if(loadImages && result.status==='review')e.enrichment.candidates.forEach(candidate=>previewCatalogCandidate(e,candidate));
 }
 async function enrichCard(e) {
   if (enriching.has(e.id)) return;
@@ -372,14 +409,7 @@ async function enrichCard(e) {
     if (!response.ok) throw new Error(result?.error?.message || 'Chinese catalog lookup unavailable.');
     if (!Array.isArray(result.candidates) || !['matched','review','not_found'].includes(result.status)) throw new Error('Chinese catalog returned an unexpected response.');
     if (!entries.some(item=>item.id===e.id)) return;
-    e.enrichment = {...result,checkedAt:new Date().toISOString()};
-    e.providerObservations = [...(e.providerObservations || []),...result.candidates.map(c=>c.observation)];
-    const previous = result.candidates.find(c=>c.card.provider_id===e.catalogMatch?.card.provider_id);
-    if (previous) {
-      e.catalogMatch.card = previous.card; e.currencyAssumed=false; e.enrichment.status='matched';
-      cacheCanonicalImage(e);
-    } else if (result.status === 'matched' && result.candidates.length === 1) applyCatalogMatch(e,result.candidates[0],'catalog_fields');
-    else if(result.status==='review')result.candidates.forEach(candidate=>previewCatalogCandidate(e,candidate));
+    storeCatalogResult(e,result);
   } catch(error) {
     e.enrichment = {...e.enrichment,status:'unavailable',message:error.name==='AbortError'?'Chinese catalog lookup timed out. Your card is saved.':error.message};
   } finally {clearTimeout(timeout);enriching.delete(e.id);save();render();}
@@ -389,13 +419,20 @@ function priceCardId(e) {
   const id=e.catalogMatch?.card?.provider_id;
   return e.status==='matched' && ['user','catalog_fields'].includes(e.catalogMatch?.confirmedBy) && e.catalogMatch?.card?.provider==='pikaqian' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id || '') ? id : null;
 }
+function catalogLookupKey(e) {
+  if(e.catalogMatch || !canEnrich(e))return null;
+  const read=readOf(e);
+  return 'catalog:'+JSON.stringify(['game','name','number','set','language','finish','stamp','kind'].map(k=>read[k] || ''));
+}
+function pendingCatalogReview(e) {return !e.catalogMatch && e.enrichment?.status==='review' && e.enrichment.candidates?.length>0;}
 function missingPriceGroups() {
   const groups=new Map();
   // Share a healthy no-sales result across duplicate copies, including after reload.
   const recent=new Set(entries.filter(e=>e.priceCheck?.status==='no_sales' && Date.now()-Date.parse(e.priceCheck.checkedAt)<NO_SALES_COOLDOWN).map(priceCardId).filter(Boolean));
+  const recentCatalog=new Set(entries.filter(e=>e.enrichment?.status==='not_found' && Date.now()-Date.parse(e.enrichment.checkedAt)<NO_SALES_COOLDOWN).map(catalogLookupKey).filter(Boolean));
   for(const e of entries) {
-    const id=priceCardId(e);
-    if(!id || availablePrices(e).length || enriching.has(e.id) || recent.has(id))continue;
+    const id=priceCardId(e) || catalogLookupKey(e);
+    if(!id || availablePrices(e).length || enriching.has(e.id) || pendingCatalogReview(e) || recent.has(id) || recentCatalog.has(id))continue;
     if(!groups.has(id))groups.set(id,[]);
     groups.get(id).push(e.id);
   }
@@ -403,42 +440,68 @@ function missingPriceGroups() {
 }
 function renderBulkPrices() {
   const count=missingPriceGroups().size;
-  const hasConfirmed=entries.some(priceCardId);
+  const reviewCount=entries.filter(pendingCatalogReview).length;
   $('bulk-pricing').hidden=false;
   $('update-missing-prices').disabled=priceBatch.running || !count || readOnlyStorage;
   $('update-missing-prices').textContent=priceBatch.running?'Updating missing prices…':'Update missing prices'+(count?' ('+count+')':'');
   $('stop-price-update').hidden=!priceBatch.running;
   $('stop-price-update').disabled=Boolean(priceBatch.stop);
   $('stop-price-update').textContent=priceBatch.stop?'Stopping after current lookup…':'Stop update';
-  $('bulk-price-status').textContent=priceBatch.message || (count ? count+' distinct printings ready. Duplicate copies share one lookup.' : !entries.length ? 'Add cards to your collection to get started.' : !hasConfirmed ? 'No confirmed Chinese printings yet. Open a Chinese card, choose “Check Chinese catalog” and confirm its printing before updating prices.' : 'No prices to update. Cards with no sales are checked at most once a day.');
+  $('bulk-price-status').textContent=priceBatch.message || (count ? count+' saved card lookups ready. Older unrecognized cards are included when their name and number were saved.' : !entries.length ? 'Add cards to your collection to get started.' : reviewCount ? reviewCount+' cards need a printing confirmed. Open them in To review and choose “This is my printing”.' : 'No eligible updates. Cards need a saved name and number or a confirmed Chinese match. No-match and no-sales results wait 24 hours.');
 }
 function stopPriceBatch() {
   if(!priceBatch.running)return;
   priceBatch.stop=true;priceBatch.wake?.();renderBulkPrices();
 }
 function priceBatchSummary(batch) {
-  return `${batch.checked} of ${batch.total} printings checked · ${batch.updated} cards priced · ${batch.noSales} with no recorded price · ${batch.errors} errors.`;
+  return `${batch.checked} of ${batch.total} printings checked · ${batch.updated} cards priced · ${batch.review} need review · ${batch.notFound} not found · ${batch.noSales} with no recorded price · ${batch.errors} errors.`;
 }
 async function updateMissingPrices() {
   if(priceBatch.running || readOnlyStorage)return;
   const pending=[...missingPriceGroups()].slice(0,PRICE_BATCH_LIMIT);if(!pending.length)return;
-  const batch=priceBatch={running:true,stop:false,checked:0,total:pending.length,updated:0,noSales:0,errors:0,consecutive:0,message:'Starting price update…'};
+  const batch=priceBatch={running:true,stop:false,checked:0,total:pending.length,updated:0,review:0,notFound:0,noSales:0,errors:0,consecutive:0,message:'Starting price update…'};
   render();
   try {
     for(const [cardId,ids] of pending) {
       if(batch.stop || readOnlyStorage || document.hidden || document.body.dataset.auth!=='signed-in')break;
-      const targets=()=>entries.filter(e=>ids.includes(e.id) && priceCardId(e)===cardId && !availablePrices(e).length);
+      const catalog=cardId.startsWith('catalog:');
+      const targets=()=>entries.filter(e=>ids.includes(e.id) && (priceCardId(e) || catalogLookupKey(e))===cardId && !availablePrices(e).length && !enriching.has(e.id) && !pendingCatalogReview(e));
       if(!targets().length)continue;
-      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),catalog?45000:15000);
       let shouldStop=false;
       try {
-        const response=await fetch('/api/pikaqian-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cardId}),credentials:'same-origin',signal:controller.signal});
+        const response=await fetch(catalog?'/api/enrich':'/api/pikaqian-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(catalog?{read:readOf(targets()[0])}:{cardId}),credentials:'same-origin',signal:controller.signal});
         let result;try{result=await response.json();}catch{throw new Error('Unreadable pricing response.');}
         if(!response.ok) {
           const error=new Error(result?.error?.message || 'Price lookup failed.');
           error.stop=[401,403,429].includes(response.status) || ['auth_required','not_configured','rate_limited','tier_required','circuit_open'].includes(result?.error?.code);
           throw error;
         }
+        if(catalog) {
+          if(!Array.isArray(result.candidates) || !['matched','review','not_found'].includes(result.status) || (result.status==='matched' && result.candidates.length!==1) || result.candidates.some(c=>c.card?.provider!=='pikaqian' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(c.card?.provider_id || '') || !c.observation))throw new Error('Unexpected catalog response.');
+          const changed=targets();
+          for(const e of changed) {
+            storeCatalogResult(e,result,false);
+            if(availablePrices(e).length)batch.updated++;
+            if(result.status==='review')batch.review++;
+            if(result.status==='not_found')batch.notFound++;
+            if(priceCardId(e) && e.catalogMatch.card.pricing_status==='no_sales') {
+              e.priceCheck={provider:'pikaqian',status:'no_sales',checkedAt:e.enrichment.checkedAt};batch.noSales++;
+            }
+          }
+          if(!save()){batch.reason='Stopped because this browser could not save changes. Back up before leaving.';shouldStop=true;}
+          // Save identity first; one canonical image can serve duplicate copies.
+          if(!shouldStop && !batch.stop && !document.hidden && changed[0]?.catalogMatch) {
+            await cacheCanonicalImage(changed[0]);
+            for(const e of changed.slice(1))if(changed[0].canonicalImage)e.canonicalImage=changed[0].canonicalImage;
+          }
+          const pricingError=result.pricingError || (result.candidates.some(c=>c.card.pricing_status==='plan_required')?'tier_required':result.candidates.some(c=>c.card.pricing_status==='unavailable')?'unavailable':null);
+          if(pricingError) {
+            if(!save()){batch.reason='Stopped because this browser could not save changes. Back up before leaving.';shouldStop=true;}
+            const error=new Error(pricingError==='tier_required'?'Card details saved. PikaQian pricing requires Hobby or above.':'Card details saved, but PikaQian pricing is unavailable.');
+            error.stop=shouldStop || ['auth_required','not_configured','rate_limited','tier_required','circuit_open'].includes(pricingError);throw error;
+          }
+        } else {
         if((result.pricingStatus==='no_sales' && result.prices?.length) || result.cardId!==cardId || !['available','no_sales'].includes(result.pricingStatus) || !Array.isArray(result.prices) || !result.observation || !Number.isFinite(Date.parse(result.checkedAt)) || (result.pricingStatus==='available' && !result.prices.some(p=>p.currency==='USD' && Number.isFinite(p.market_price) && p.market_price>0)))throw new Error('Unexpected pricing response.');
         for(const e of targets()) {
           const card=e.catalogMatch.card;
@@ -449,11 +512,12 @@ async function updateMissingPrices() {
           if(result.pricingStatus==='available')batch.updated++;
         }
         if(result.pricingStatus==='no_sales')batch.noSales++;
+        }
         batch.consecutive=0;
         if(!save()){batch.reason='Stopped because this browser could not save changes. Back up before leaving.';shouldStop=true;}
       }catch(error) {
         batch.errors++;batch.consecutive++;
-        shouldStop=Boolean(error.stop) || error.name==='AbortError' || batch.consecutive>=3 || batch.errors>=5;
+        shouldStop=shouldStop || Boolean(error.stop) || error.name==='AbortError' || batch.consecutive>=3 || batch.errors>=5;
         if(shouldStop)batch.reason=error.name==='AbortError'?'Stopped after a timeout; no retry was made.':error.stop?'Stopped. '+error.message:'Stopped after repeated errors; no retries were made.';
       }finally{clearTimeout(timeout);batch.checked++;batch.message=priceBatchSummary(batch);render();}
       if(shouldStop || batch.stop)break;
@@ -469,7 +533,10 @@ $('update-missing-prices').onclick=updateMissingPrices;
 $('stop-price-update').onclick=stopPriceBatch;
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopPriceBatch();});
 window.addEventListener('pagehide',stopPriceBatch);
+const previewingCandidates=new WeakSet();
 async function previewCatalogCandidate(e,candidate) {
+  if(previewingCandidates.has(candidate))return;
+  previewingCandidates.add(candidate);
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);
   try {
     const response=await fetch('/api/pikaqian-image?id='+encodeURIComponent(candidate.card.provider_id),{credentials:'same-origin',signal:controller.signal});
@@ -498,6 +565,7 @@ function renderEnrichment(e) {
   if(state?.status!=='review')return;
   for(const candidate of state.candidates || []) {
     const card=candidate.card,box=element('div','catalog-candidate');
+    if(!candidate.previewImage)previewCatalogCandidate(e,candidate);
     if(/^data:image\/(jpeg|png|webp);base64,/.test(candidate.previewImage || '')){const image=element('img','catalog-preview');image.src=candidate.previewImage;image.alt='Possible '+card.name+' printing — not yet confirmed';box.append(image);}
     box.append(element('strong','',card.name),element('p','',[card.set?.name,card.set?.id,card.number,card.suggested_printing,'Simplified Chinese'].filter(Boolean).join(' · ')));
     const link=element('a','catalog-source','View card at PikaQian ↗');link.href='https://pikaqian.com/cards/'+encodeURIComponent(card.provider_id);link.target='_blank';link.rel='noopener noreferrer';box.append(link);
@@ -520,8 +588,21 @@ async function enableCamera() {
     $('camera-help').textContent = 'Camera access wasn’t available. You can allow it in your browser settings, or choose photos below.';
   } finally { $('enable-camera').disabled = false; }
 }
-function openCamera() { if (!$('camera-view').open) $('camera-view').showModal(); }
+function renderRetakeMode() {
+  $('photo-input').multiple=!retakeId;
+  $('retake-note').hidden=!retakeId;
+  $('retake-note').textContent=retakeId?'Retake this card · the next photo updates its saved entry and uses one scan.':'';
+}
+function startRetake(id) {
+  if(readOnlyStorage || !entries.some(e=>e.id===id && e.status==='retake'))return;
+  retakeId=id;
+  if($('detail-view').open)$('detail-view').close();
+  openCamera();if(!stream)enableCamera();
+}
+$('retake-card').onclick=()=>startRetake(focusedId);
+function openCamera() { renderRetakeMode();if (!$('camera-view').open) $('camera-view').showModal(); }
 function stopCamera() {
+  retakeId=null;renderRetakeMode();
   clearTimeout(latestTimer); $('latest-find').hidden = true;
   cameraGeneration++; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null;
   $('camera-video').srcObject = null; $('camera-video').hidden = true; $('viewfinder').hidden = true; $('camera-placeholder').hidden = false; $('shutter').disabled = true;
@@ -550,16 +631,17 @@ for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => {
   for (const item of document.querySelectorAll('.tab')) { item.classList.toggle('active',item === tab); item.setAttribute('aria-pressed',String(item === tab)); }
   render();
 };
+function mediaRecords(list) {return list.flatMap(e=>[e,...(e.scanHistory || [])]);}
 $('export').onclick = async() => {
   const button=$('export');button.disabled=true;button.textContent='Preparing backup…';
   try {
     const snapshot=structuredClone(entries), scanImages=Object.create(null), missingScanImages=[];
-    for(const e of snapshot) {
+    for(const e of mediaRecords(snapshot)) {
       const source=await PokeSiftPhotos.get(e.id);
       if(source)scanImages[e.id]=await PokeSiftPhotos.dataURL(source);
       else if(e.scanPhoto)missingScanImages.push(e.id);
     }
-    const backup={format:'pokesift-backup',backupVersion:2,version:1,exportedAt:new Date().toISOString(),entries:snapshot,scanImages,missingScanImages,exchangeRates:fx};
+    const backup={format:'pokesift-backup',backupVersion:3,version:1,exportedAt:new Date().toISOString(),entries:snapshot,scanImages,missingScanImages,exchangeRates:fx};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pokesift-collection.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     if(missingScanImages.length)notify(`${missingScanImages.length} scan photos were unavailable. Their saved thumbnails and card details are included.`);
@@ -567,7 +649,7 @@ $('export').onclick = async() => {
   finally{button.disabled=false;button.textContent='Back up collection ↗';}
 };
 function validateBackup(value) {
-  if (!value || value.version !== 1 || (value.backupVersion !== undefined && ![1,2].includes(value.backupVersion)) || !Array.isArray(value.entries) || value.entries.length > 1000) throw new Error('Unsupported or oversized backup. Choose a PokéSift JSON backup.');
+  if (!value || value.version !== 1 || (value.backupVersion !== undefined && ![1,2,3].includes(value.backupVersion)) || !Array.isArray(value.entries) || value.entries.length > 1000) throw new Error('Unsupported or oversized backup. Choose a PokéSift JSON backup.');
   const statuses = new Set([...busyStates,...reviewStates,'matched']);
   const imageOK = image => typeof image === 'string' && image.length <= 2*1024*1024 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image);
   for (const e of value.entries) {
@@ -579,6 +661,13 @@ function validateBackup(value) {
   }
   if (value.scanImages !== undefined && (!value.scanImages || typeof value.scanImages !== 'object' || Array.isArray(value.scanImages))) throw new Error('Invalid scan images in backup.');
   const ids=new Set(value.entries.map(e=>e.id));
+  for(const e of value.entries) {
+    if(e.scanHistory!==undefined && (!Array.isArray(e.scanHistory) || e.scanHistory.length>1000))throw new Error('Invalid capture history in backup.');
+    for(const h of e.scanHistory || []) {
+      if(!h || typeof h.id!=='string' || !h.id.length || h.id.length>100 || ['__proto__','constructor','prototype'].includes(h.id) || ids.has(h.id) || !imageOK(h.thumbnail))throw new Error('Invalid capture history in backup.');
+      ids.add(h.id);
+    }
+  }
   for(const [id,image] of Object.entries(value.scanImages || {})) { if(!ids.has(id))throw new Error('Backup photo has no matching card.');PokeSiftPhotos.decode(image); }
   return value;
 }
@@ -598,16 +687,16 @@ $('backup-file').onchange = async event => {
       added.push({...e,result,currencyAssumed:Boolean(result?.data?.candidates?.some(c=>c.prices?.some(p=>p.currency_assumed))),
         ...(busyStates.has(e.status)?{status:'interrupted',message:'This scan was unfinished when backed up. It has not been resubmitted.'}:{})});
     }
-    const missingMedia=[];
-    for(const id of Object.keys(backup.scanImages || {})) { if(!await PokeSiftPhotos.get(id))missingMedia.push(id); }
+    const missingMedia=[],records=mediaRecords([...added,...entries]);
+    for(const id of Object.keys(backup.scanImages || {})) { if(records.some(e=>e.id===id) && !await PokeSiftPhotos.get(id))missingMedia.push(id); }
     if (!added.length && !missingMedia.length) { notify('All cards in this backup are already in your collection.'); return; }
     if (!confirm(`Restore ${added.length} cards and ${missingMedia.length} scan photos? ${skipped} duplicate entries will be skipped. Existing cards stay unchanged. No scans will be used.`)) return;
     for(const id of missingMedia) {
       const blob=PokeSiftPhotos.decode(backup.scanImages[id]), persisted=await PokeSiftPhotos.put(id,blob);
-      const e=added.find(e=>e.id===id) || entries.find(e=>e.id===id);
+      const e=records.find(e=>e.id===id);
       e.scanPhoto={id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted};
     }
-    for(const e of added) { if(e.scanPhoto && !await PokeSiftPhotos.get(e.id))e.scanPhoto={...e.scanPhoto,persisted:false}; }
+    for(const e of mediaRecords(added)) { if(e.scanPhoto && !await PokeSiftPhotos.get(e.id))e.scanPhoto={...e.scanPhoto,persisted:false}; }
     entries=[...added,...entries];
     if (validFx(backup.exchangeRates) && (!fx || backup.exchangeRates.date > fx.date)) {
       fx=backup.exchangeRates; fxFailed=true;
@@ -617,7 +706,7 @@ $('backup-file').onchange = async event => {
     notify(saved ? `${added.length} cards and ${missingMedia.length} scan photos restored. No scans used.` : 'Cards restored in memory. Export them before leaving; browser storage is full.');
   } catch(error) { notify(error instanceof SyntaxError ? 'That file is not a valid JSON backup. Nothing was imported.' : error.message); }
 };
-window.addEventListener('beforeunload',event => { if (active || jobs.length || pendingPreparation || priceBatch.running || PokeSiftPhotos.hasTransient()) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload',event => { if (active || jobs.length || pendingPreparation || priceBatch.running || unsavedCollection || PokeSiftPhotos.hasTransient()) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('pagehide',stopCamera);
 window.addEventListener('storage',event => {
   if (event.key === STORAGE_KEY) { stopPriceBatch(); readOnlyStorage = true; storageWarning('Your collection changed in another tab. Export any new cards here, then reload to see that tab’s saved collection. This tab will not overwrite it.'); }

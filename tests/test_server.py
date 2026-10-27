@@ -121,6 +121,15 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status, 502)
         self.assertNotIn('secret-provider-key', json.dumps(body))
 
+    def test_enrichment_exposes_safe_codes_for_bulk_stop(self):
+        from unittest.mock import Mock
+        from pikaqian import ProviderError
+        for code in ('not_configured', 'auth_required', 'rate_limited', 'circuit_open'):
+            self.server.pikaqian.enrich = Mock(side_effect=ProviderError(code))
+            status, body, _ = self.auth_request('/api/enrich', {'read': {}}, self.cookie)
+            self.assertEqual(status, 503)
+            self.assertEqual(body['error']['code'], code)
+
     def test_price_refresh_is_authenticated_and_reports_stop_codes(self):
         from unittest.mock import Mock
         from pikaqian import ProviderError

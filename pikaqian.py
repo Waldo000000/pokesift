@@ -214,6 +214,7 @@ class PikaQian:
         if exact:
             candidates = exact
         output = []
+        pricing_error = None
         for brief in candidates[:3]:
             card = self.get('cards/' + brief['id'])
             if (card.get('id') != brief['id'] or card.get('language') != 'zh-CN'
@@ -229,11 +230,14 @@ class PikaQian:
             if price_record is None:
                 if time.monotonic() < self.pricing_disabled_until:
                     pricing_status = 'plan_required'
+                    pricing_error = 'tier_required'
                 else:
                     try:
                         price_record = self.get('cards/' + card['id'] + '/prices')
                     except ProviderError as error:
                         pricing_status = {'tier_required': 'plan_required', 'price_not_found': 'no_sales'}.get(error.code, 'unavailable')
+                        if error.code != 'price_not_found':
+                            pricing_error = error.code
                         if error.code == 'tier_required':
                             self.pricing_disabled_until = time.monotonic() + 60
             printed = set_info.get('card_count', {}).get('printed')
@@ -244,10 +248,17 @@ class PikaQian:
                 'exact': exact_match, 'observation': {'provider': 'pikaqian', 'operation': 'catalog_lookup',
                     'receivedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'snapshotKind': 'provider_response',
                     'response': {'card': card, 'prices': price_record, 'set': set_info}, 'pricingStatus': pricing_status}})
+            if pricing_error in ('auth_required', 'rate_limited', 'circuit_open', 'unavailable'):
+                incomplete = incomplete or len(output) < len(candidates)
+                if incomplete:
+                    for candidate in output:
+                        candidate['exact'] = False
+                break
         matches = [c for c in output if c['exact']]
         # A free-tier partial catalog must not resolve unknown finishes or stamps implicitly.
         return {'provider': 'pikaqian', 'status': 'matched' if len(matches) == 1 and len(candidates) <= 3 else 'review' if output else 'not_found',
-            'candidates': matches if len(matches) == 1 and len(candidates) <= 3 else output, 'incomplete': incomplete or len(candidates) > 3}
+            'candidates': matches if len(matches) == 1 and len(candidates) <= 3 else output, 'incomplete': incomplete or len(candidates) > 3,
+            'pricingError': pricing_error}
 
     def image(self, card_id):
         if not ID.fullmatch(card_id):

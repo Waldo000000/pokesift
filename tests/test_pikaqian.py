@@ -68,6 +68,7 @@ class ProviderTests(unittest.TestCase):
         self.prices = {'error': {'code': 'tier_required'}}
         result = self.provider.enrich(READ)
         self.assertEqual(result['candidates'][0]['card']['pricing_status'], 'plan_required')
+        self.assertEqual(result['pricingError'], 'tier_required')
         self.assertEqual(result['candidates'][0]['card']['prices'], [])
         self.provider.pricing_disabled_until = 0
         self.price_status = 200
@@ -83,6 +84,13 @@ class ProviderTests(unittest.TestCase):
         self.price_status = 404
         self.prices = {'error': {'code': 'price_not_found'}}
         self.assertEqual(self.provider.enrich(READ)['candidates'][0]['card']['pricing_status'], 'no_sales')
+
+    def test_catalog_preserves_identity_when_pricing_quota_stops_bulk(self):
+        self.price_status = 429
+        result = self.provider.enrich(READ)
+        self.assertEqual(result['pricingError'], 'rate_limited')
+        self.assertEqual(result['candidates'][0]['card']['provider_id'], CARD_ID)
+        self.assertEqual(result['candidates'][0]['card']['prices'], [])
 
     def test_incomplete_search_and_other_printings_are_not_auto_matched(self):
         self.cursor = 'more'

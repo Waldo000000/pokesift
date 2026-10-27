@@ -286,9 +286,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(400, 'A Pokémon name and collector number are needed for catalog lookup.')
             except ProviderError as error:
                 message = {'not_configured': 'Chinese catalog access is not configured.',
-                    'rate_limited': 'Chinese catalog lookup limit reached. Try again later.'}.get(error.code,
+                    'rate_limited': 'Chinese catalog lookup limit reached. Try again later.',
+                    'auth_required': 'PikaQian rejected the saved API key. Contact the app owner.',
+                    'tier_required': 'PikaQian access requires a higher plan.',
+                    'circuit_open': 'PikaQian requests paused after errors. Try again in five minutes.'}.get(error.code,
                     'Chinese catalog is temporarily unavailable. Your scan is saved.')
-                return self.error(503, message)
+                return self.send(503, json.dumps({'error': {'code': error.code, 'message': message}}).encode())
             except Exception:
                 return self.error(502, 'Chinese catalog is temporarily unavailable. Your scan is saved.')
             return self.send(200, json.dumps(result).encode())
