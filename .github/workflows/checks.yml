@@ -21,3 +21,4 @@ jobs:
       - run: npm run test:browser
       - run: npm run test:concepts
       - run: npm run test:collection
+      - run: npm run test:foil

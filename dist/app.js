@@ -256,6 +256,7 @@ function renderDetail() {
   $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,scanHistory:e.scanHistory || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
   $('raw-details').hidden = busyStates.has(e.status);
   renderRemoval(e);
+  window.PokeSiftCardDetails?.render(e);
 }
 $('valuation-choice').onchange = event => {
   const e = entries.find(e => e.id === focusedId); if (!e) return;

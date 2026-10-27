@@ -4,8 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#e9e6dc">
   <title>Hold a card · PokéSift playground</title>
-  <link rel="stylesheet" href="card-study.css">
-  <script defer src="art.js"></script><script defer src="card-study.js"></script>
+  <link rel="stylesheet" href="card-study.css"><link rel="stylesheet" href="../card-effects.css">
+  <script defer src="art.js"></script><script defer src="../card-effects.js"></script><script defer src="card-study.js"></script>
 </head>
 <body data-look="hand">
   <div class="collection-backdrop" aria-hidden="true"><span>YOUR LITTLE TREASURES</span><div id="background-cards"></div></div>
@@ -23,14 +23,14 @@
       <div class="card-shadow" aria-hidden="true"></div>
       <button id="card" class="card" aria-label="Tilt Charizard. Drag, or use the arrow keys. Press Home to reset." aria-describedby="gesture-hint">
         <img id="card-art" alt="Charizard Base Set 2 Pokémon card" draggable="false">
-        <span class="foil" aria-hidden="true"></span><canvas id="foil-flecks" width="560" height="360" aria-hidden="true"></canvas><span class="foil-light" aria-hidden="true"></span><span class="glare" aria-hidden="true"></span><span class="edge" aria-hidden="true"></span>
+
       </button>
     </div>
     <p class="gesture-hint" id="gesture-hint">Hold & drag to catch the light <span>↔</span></p>
     <section class="card-info" aria-label="Sample card details">
       <div class="identity"><div><h1 id="card-name">Charizard</h1><p id="card-set">Base Set 2 · 4/130 · Holofoil</p></div><div class="valuation"><strong id="card-value">A$284.00</strong><span>Sample value · AUD</span></div></div>
       <details id="extra-details"><summary>Little details <span>+</span></summary><div class="extra"><span>Condition <b>Near mint</b></span><span>Language <b>English</b></span><span>Finish <b id="finish">Holofoil</b></span></div><button id="mask-preview" aria-pressed="false">Show foil area</button><p class="sample-note">Demo cards and prices. Hand-drawn masks keep simulated foil in the artwork background. These are approximations, not verified maps of the physical prints.</p></details>
-    </section>
+    <details class="foil-settings"><summary>Explore foil finishes</summary><label for="study-finish">Pattern</label><select id="study-finish"></select><label for="study-region">Foil area</label><select id="study-region"></select><label for="study-layout">Card layout</label><select id="study-layout"></select><p id="study-status" role="status"></p></details></section>
   </main>
   <footer>
     <div class="samples" aria-label="Sample cards"><button data-card="6" aria-pressed="true">Charizard</button><button data-card="9" aria-pressed="false">Blastoise</button><button data-card="25" aria-pressed="false">Pikachu</button></div>

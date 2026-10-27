@@ -207,3 +207,20 @@ The backend does not persist collection photos or provider responses. TCG API re
 These controls reset on restart and are independent across server instances. They are **not a durable monthly spending cap**. Provider account quotas remain authoritative; use provider-side spending controls and a shared persistent limiter before scaling.
 
 PikaQian's [pricing schema](https://pikaqian.com/docs/api/get-card-prices-v-1-cards-card-id-prices-get/), [plans](https://pikaqian.com/docs/tiers-and-rate-limits/) and [terms](https://pikaqian.com/terms) govern pricing access, attribution, commercial use and data retention. Its raw-data redistribution and post-downgrade retention restrictions also matter for backups and future migration; permission for private complete backups has not been separately confirmed. The app exports the user's combined collection, not a public bulk catalog.
+
+### Card finishes and light
+
+Card details now support drag-to-tilt viewing in the collection and binder. Open
+**Card finish & light** to choose a simulated finish, its foil area and the card
+layout, or inspect the mask. Visual choices are saved per entry and included in
+collection backups; they do not change identity or prices and use no scan credits.
+The [card playground](https://pokesift-dev.onrender.com/concepts/card-study.html)
+compares 20 treatments, including matte, classic holo, reverse, full-card sparkle,
+textured, rainbow, gold, cracked ice, and Poké Ball / Master Ball patterns.
+
+Automatic coverage is deliberately conservative. Only two printing-specific
+silhouette masks are currently supplied; other known whole-card finishes can use
+a broad approximation, and uncertain finishes remain tilt-only until a visual
+choice is made. See [finish research, coverage, exceptions and mask provenance](docs/card-finishes.md)
+for the distinctions and the process for adding precise maps. Run `npm run test:foil`
+for renderer, mask, persistence and no-credit browser checks.

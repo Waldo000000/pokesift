@@ -188,12 +188,20 @@
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(turn){e.preventDefault();settleTurn(false);}if(drag){e.preventDefault();clearDrag();}}});
   spreadMedia.addEventListener('change',()=>{clearDrag();if(turn)finishTurn(false);page=Math.floor(page/pageStep())*pageStep();if(theme==='binder')renderCards();});
 
+  let heldRenderer=null;
+  $('detail').addEventListener('close',()=>{heldRenderer?.destroy();heldRenderer=null;});
   const oldShowDetail=showDetail;
-  showDetail=function(html){runtime?.focusRoom();closeFloat();detailFan?.destroy();detailFan=null;$('detail').classList.remove('pokemon-fan-detail');oldShowDetail(html);};
+  showDetail=function(html){heldRenderer?.destroy();heldRenderer=null;$('detail').classList.remove('card-inspect-detail');runtime?.focusRoom();closeFloat();detailFan?.destroy();detailFan=null;$('detail').classList.remove('pokemon-fan-detail');oldShowDetail(html);};
   cardDetail=function(c,{from=null,holding=false}={}){
     if(runtime&&theme!=='binder'){closeFloat();runtime.openDetail(c.key);return;}
     const origin=locate(c.key),inBinder=origin.slot!==undefined,physical=theme==='binder';
     showDetail(`<div class="detail-grid holding-detail"><img class="detail-card" src="${escapeHTML(img(c))}" alt="${escapeHTML(c.name)} card"><div><p class="eyebrow">${holding?'IN YOUR HANDS':'A LITTLE CLOSER'}</p><h2>${escapeHTML(c.name)}</h2><p>${escapeHTML(c.set)} · ${escapeHTML(c.edition)}<br>${escapeHTML(c.type)} type</p><strong class="detail-value">${valueOfCard(c)}</strong><p>${runtime?escapeHTML(runtime.fx):'Sample value · AUD'}</p><div class="detail-actions">${physical?`<button id="put-back">${inBinder?'Slide back into its sleeve':'Return to stack '+(origin.stack+1)}</button><button id="change-place">${inBinder?'Lay on stack one':'Slide into an empty sleeve'}</button><button id="second-stack">${inBinder?'Lay on stack two':'Move to stack '+(origin.stack===0?2:1)}</button>`:''}<button id="meet-pokemon">Fan out my ${escapeHTML(c.name)} cards ↗</button></div></div></div>`);
+    if(window.PokeSiftFoil){
+      $('detail').classList.add('card-inspect-detail');
+      const image=$('detail-content').querySelector('.detail-card'),perspective=document.createElement('div'),holder=document.createElement('div');perspective.className='foil-perspective';holder.className='held-foil-card';image.replaceWith(perspective);perspective.append(holder);holder.append(image);
+      const data=c.foilData||{name:c.name,set:c.id===6?'Base Set 2':c.set,number:c.id===6?'4/130':c.id===9?'2/102':'',language:'en',game:'pokemon',finish:c.edition,canonical:true};
+      heldRenderer=PokeSiftFoil.mount(holder,image,PokeSiftFoil.resolve(data));
+    }
     if(physical){$('second-stack').onclick=()=>{place(c.key,null,inBinder?1:1-origin.stack);$('detail').close();};$('put-back').onclick=()=>$('detail').close();$('change-place').onclick=()=>{if(inBinder)place(c.key);else freeSleeve(c.key);$('detail').close();};}
     if(runtime){$('meet-pokemon').textContent='Full card details ↗';$('meet-pokemon').onclick=()=>{$('detail').close();runtime.openDetail(c.key);};}else $('meet-pokemon').onclick=()=>speciesDetail(c);
     if(from&&!reduced())requestAnimationFrame(()=>{const image=$('detail-content').querySelector('.detail-card'),to=image.getBoundingClientRect();image.animate([{transformOrigin:'top left',transform:`translate(${from.left-to.left}px,${from.top-to.top}px) scale(${from.width/to.width},${from.height/to.height})`},{transformOrigin:'top left',transform:'none'}],{duration:300,easing:'cubic-bezier(.2,.8,.2,1)'});});
