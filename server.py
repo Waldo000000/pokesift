@@ -16,7 +16,9 @@ MAX_RESPONSE = 2 * 1024 * 1024
 
 
 def forward(key, data, mime):
-    request = urllib.request.Request(API, data=data, headers={'X-API-Key': key, 'Content-Type': mime}, method='POST')
+    request = urllib.request.Request(API, data=data, headers={'X-API-Key': key, 'Content-Type': mime,
+        'Accept': 'application/json',
+        'User-Agent': 'PokeSift/0.1 (+https://github.com/Waldo000000/pokesift)'}, method='POST')
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *args, **kwargs):
             return None
@@ -116,7 +118,7 @@ class Handler(BaseHTTPRequestHandler):
                     return value
                 body = json.dumps(redact(parsed)).encode()
             except (ValueError, UnicodeError):
-                return self.error(502, 'Provider returned an unreadable response. A scan may have been used. No retry was made.')
+                return self.error(502, f'Provider returned a non-JSON response (HTTP {status}). A scan may have been used. No retry was made.')
             if 300 <= status < 400:
                 return self.error(502, 'Provider redirect refused. No retry was made.')
             self.send(status, body)

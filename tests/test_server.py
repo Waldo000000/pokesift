@@ -2,7 +2,8 @@ import http.client
 import json
 import threading
 import unittest
-from server import make_server
+from server import make_server, forward
+from unittest.mock import patch, MagicMock
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'test'
 
@@ -94,6 +95,22 @@ class ServerTests(unittest.TestCase):
         status, body, _ = self.request()
         self.assertEqual(status, 502)
         self.assertNotIn(b'test-key', body)
+
+class ProviderRequestTests(unittest.TestCase):
+    def test_application_identification_and_json_negotiation(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.status = 401
+        response.read.return_value = b'{"error":"Invalid key"}'
+        with patch('server.urllib.request.build_opener') as build:
+            build.return_value.open.return_value = response
+            status, body = forward('test-key', PNG, 'image/png')
+            request = build.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_header('User-agent'), 'PokeSift/0.1 (+https://github.com/Waldo000000/pokesift)')
+            self.assertEqual(request.get_header('Accept'), 'application/json')
+            self.assertEqual(status, 401)
+            self.assertEqual(build.return_value.open.call_count, 1)
+
 
 if __name__ == '__main__':
     unittest.main()
