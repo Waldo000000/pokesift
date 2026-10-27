@@ -214,6 +214,7 @@ class Handler(BaseHTTPRequestHandler):
         files.update({f'/concepts/{name}': (f'concepts/{name}', mime) for name, mime in [('concepts.css', 'text/css'), ('concepts.js', 'text/javascript'), ('tactile.js', 'text/javascript'), ('art.js', 'text/javascript')]})
         files.update({f'/concepts/card-study.{ext}': (f'concepts/card-study.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files['/card-details.js'] = ('card-details.js', 'text/javascript')
+        files.update({f'/motion.{ext}': (f'motion.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/card-effects.{ext}': (f'card-effects.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         if self.path in files:
             name, mime = files[self.path]

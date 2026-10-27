@@ -54,7 +54,7 @@ try{
     await page.locator('#card').press('ArrowRight');await page.waitForTimeout(50);
   }
   await page.locator('#study-finish').selectOption('pokeball');await page.locator('#study-region').selectOption('reverse');await page.locator('#card').press('Home');await page.screenshot({path:'/tmp/pokesift-foil-library-mobile.png',fullPage:true});
-  await page.emulateMedia({reducedMotion:'reduce'});await page.locator('#card').press('ArrowLeft');assert.equal(await page.locator('#card').evaluate(e=>e.style.getPropertyValue('--card-ry')),'-6deg');
+  await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>PokeSiftMotion.set('reduced'));await page.locator('#card').press('ArrowLeft');assert.equal(await page.locator('#card').evaluate(e=>e.style.getPropertyValue('--card-ry')),'-6deg');
   await page.getByRole('button',{name:'Pikachu',exact:true}).click();assert(!(await page.locator('#card').evaluate(e=>e.classList.contains('has-foil'))));
   await page.goto(base);await page.evaluate(({key,entry})=>localStorage.setItem(key,JSON.stringify({version:1,entries:[entry]})),{key,entry});await page.reload();await page.locator('.card-tile').first().click();
   assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'cosmos','cheapest Normal price must not override the saved holo read');

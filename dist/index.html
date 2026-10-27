@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head>
+<head><script src="/motion.js"></script><link rel="stylesheet" href="/motion.css">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f4f3ed">
@@ -52,7 +52,7 @@
     <p id="no-results" class="no-results" hidden>No cards found. Try another name or set.</p>
     <section id="card-grid" class="card-grid" aria-label="Saved cards"></section>
     </div>
-    <footer class="collection-footer"><button id="fx-refresh" class="text-button fx-button" title="Refresh exchange rates">AUD · loading rates ↻</button><span id="saved-note">Saved in this browser. No cloud sync.</span><button id="export" class="text-button" hidden>Back up collection ↗</button><button id="import-backup" class="text-button">Restore backup</button><input id="backup-file" type="file" accept="application/json,.json" hidden><button id="add-device" class="text-button">Add another device</button><button id="sign-out" class="text-button">Sign out</button></footer>
+    <footer class="collection-footer"><label class="motion-preference">Animations <select data-motion-choice aria-label="Animation preference"><option value="full">Full</option><option value="reduced">Reduced</option><option value="system">Follow device</option></select></label><button id="fx-refresh" class="text-button fx-button" title="Refresh exchange rates">AUD · loading rates ↻</button><span id="saved-note">Saved in this browser. No cloud sync.</span><button id="export" class="text-button" hidden>Back up collection ↗</button><button id="import-backup" class="text-button">Restore backup</button><input id="backup-file" type="file" accept="application/json,.json" hidden><button id="add-device" class="text-button">Add another device</button><button id="sign-out" class="text-button">Sign out</button></footer>
   </main>
   <dialog id="camera-view" class="camera-dialog" aria-labelledby="camera-title">
     <header class="camera-header"><div><p class="eyebrow">BUILD YOUR COLLECTION</p><h2 id="camera-title">Find your next card.</h2></div><button id="close-camera" class="round-button" aria-label="Close camera and browse collection">✕</button></header>

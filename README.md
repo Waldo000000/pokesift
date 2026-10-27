@@ -226,3 +226,17 @@ pattern, coverage and layout. Unrecognized finishes remain tilt-only until a
 visual choice is made. See [finish research, coverage, exceptions and mask provenance](docs/card-finishes.md)
 for the distinctions and the process for adding precise maps. Run `npm run test:foil`
 for renderer, mask, persistence and no-credit browser checks.
+
+### Animation preference
+
+PokéSift defaults to **Full** animations on every device, including iPads with
+iPadOS Reduce Motion enabled. Use **Animations** in the collection footer (or at
+the bottom of a prototype) to select **Reduced** or **Follow device**. The choice
+is saved on this device and synchronizes across the collection iframe and other
+open PokéSift tabs. It does not change the operating system setting. If browser
+storage is unavailable, the choice still works for the current page visit.
+
+The shared `motion.js` preference drives both JavaScript effects and CSS; existing
+fan, binder, Zoo and card-tilt animations use it without being rewritten. Run
+`npm run test:motion` to verify behaviour with the browser's reduced-motion media
+query enabled, explicit app preferences, iframe/tab updates and storage failures.

@@ -3,7 +3,7 @@
 // through the parent collection bridge and never initiates a scan.
 (() => {
   const STORE='pokesift.prototype.physical.v2';
-  const reduced=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduced=()=>window.PokeSiftMotion?.matches||false;
   const spreadMedia=matchMedia('(min-width: 900px) and (orientation: landscape)');
   let layout={slots:[],piles:[[],[]],positions:{}},mainFan=null,detailFan=null,drag=null,turn=null,floatFan=null,floatAnchor=null;
   if(runtime)layout=structuredClone(runtime.layout);

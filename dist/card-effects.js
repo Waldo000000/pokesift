@@ -96,7 +96,7 @@
     const make=(tag,cls)=>{const node=document.createElement(tag);node.className=cls;node.setAttribute('aria-hidden','true');host.append(node);return node;};
     const colour=make('span','foil-colour'),canvas=make('canvas','foil-pattern'),beam=make('span','foil-beam'),glare=make('span','foil-gloss');
     canvas.width=480;canvas.height=660;const ctx=canvas.getContext('2d');
-    const motion=matchMedia('(prefers-reduced-motion: reduce)');
+    const motion=window.PokeSiftMotion||{matches:false,addEventListener(){}};
     let seed=719;const rand=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
     const flakes=Array.from({length:450},()=>({x:rand()*240,y:rand()*330,r:.3+rand()**3*2.3,nx:rand()*2-1,ny:rand()*2-1,h:rand()*360,a:rand()*Math.PI}));
     let config={},mask=null,rx=0,ry=0,tx=0,ty=0,pointer=null,frame=0,last=0,enabled=true,inspection=false,destroyed=false;

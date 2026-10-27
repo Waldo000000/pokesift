@@ -119,5 +119,7 @@ playground is an experiment, not a claim that the sample was printed that way.
 
 Textures are generated locally at a bounded resolution. They respond to tilt and
 do not animate autonomously. Pointer capture supports touch and mouse; arrow keys
-tilt and Home resets. Reduced Motion removes animated interpolation while keeping
-direct manipulation. Closing details disposes the animation and event handlers.
+tilt and Home resets. The app defaults to Full animations independently of the operating system.
+Choosing Reduced (or Follow device when the OS requests reduced motion) removes
+animated interpolation while keeping direct manipulation. The preference lives
+in `pokesift.motion.v1` on this device; it is not collection data. Closing details disposes the animation and event handlers.

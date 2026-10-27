@@ -22,3 +22,4 @@ jobs:
       - run: npm run test:concepts
       - run: npm run test:collection
       - run: npm run test:foil
+      - run: npm run test:motion
