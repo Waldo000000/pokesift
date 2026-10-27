@@ -10,8 +10,8 @@
   function reconcile() {
     const keys=new Set(cards.map(c=>c.key)),seen=new Set();
     if(!layout.slots.length){layout.slots=cards.slice(0,9).map(c=>c.key);layout.piles=[cards.slice(9).map(c=>c.key),[]];}
-    layout.slots=layout.slots.slice(0,90).map(key=>{if(keys.has(key)&&!seen.has(key)){seen.add(key);return key;}return null;});
-    while(layout.slots.length%18 || layout.slots.length<36)layout.slots.push(null);
+    layout.slots=layout.slots.map(key=>{if(keys.has(key)&&!seen.has(key)){seen.add(key);return key;}return null;});
+    while(layout.slots.length%18 || layout.slots.length<180)layout.slots.push(null);
     layout.piles=[0,1].map(i=>(Array.isArray(layout.piles[i])?layout.piles[i]:[]).filter(key=>{if(keys.has(key)&&!seen.has(key)){seen.add(key);return true;}return false;}));
     for(const c of cards)if(!seen.has(c.key))layout.piles[0].push(c.key);
   }
@@ -30,7 +30,7 @@
   // One pointer-driven fan is shared by the full browser and Pokémon details.
   function makeFan(host,list,{initialIndex=Math.max(0,list.length-1),onChange=()=>{},onOpen=cardDetail}={}) {
     const controller=new AbortController(),signal=controller.signal;
-    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,velocity=0,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0,revealTarget=1,pauseTimer=0;
+    let position=Math.min(initialIndex,Math.max(0,list.length-1)),target=position,velocity=0,frame=0,gesture=null,lastLabel=-1,reveal=1,revealFrame=0,revealTarget=1;
     host.classList.add('tactile-fan');host.replaceChildren();
     const buttons=list.map((c,i)=>{const b=document.createElement('button');b.className='fan-card';b.dataset.fanIndex=i;b.setAttribute('aria-label',c.name+', '+money(c.value));b.innerHTML=`<img src="${img(c)}" alt="${c.name} ${c.edition}" draggable="false"><span class="fan-price">${money(c.value)}</span>`;b.onclick=e=>{if(e.detail===0){if(Math.round(position)===i)onOpen(c);else go(i);}};host.append(b);return b;});
     const step=()=>host.clientWidth<500?105:145;
@@ -38,23 +38,22 @@
       const mobile=host.clientWidth<500,selected=Math.max(0,Math.min(list.length-1,Math.round(position)));
       const cardWidth=buttons[0]?.offsetWidth||180,spacing=mobile?30:43,radius=mobile?900:1250;
       buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),fraction=Math.max(0,Math.min(1,d)),opening=fraction*fraction*(3-2*fraction),arc=d*spacing+opening*cardWidth*.88*reveal,angle=arc/radius;
-        b.style.transform=`translateX(calc(-50% + ${Math.sin(angle)*radius}px)) translateY(${(1-Math.cos(angle))*radius}px) rotate(${angle*180/Math.PI}deg)`;b.style.opacity='1';b.style.zIndex=String(i+1);b.style.visibility=a>6?'hidden':'visible';b.style.pointerEvents=a>6?'none':'auto';b.classList.toggle('selected',i===selected);b.tabIndex=i===selected?0:-1;b.setAttribute('aria-pressed',String(i===selected));b.querySelector('.fan-price').style.opacity=String(Math.max(0,1-a*2));});
+        b.style.transform=`translateX(calc(-50% + ${Math.sin(angle)*radius}px)) translateY(${(1-Math.cos(angle))*radius}px) rotate(${angle*180/Math.PI}deg)`;const fade=list.length>30?Math.max(0,Math.min(1,(a-10)/8)):0,opacity=1-fade*fade*(3-2*fade);b.style.opacity=String(opacity);b.style.zIndex=String(i+1);b.style.visibility='visible';b.style.pointerEvents=opacity>0?'auto':'none';b.classList.toggle('selected',i===selected);b.tabIndex=i===selected?0:-1;b.setAttribute('aria-pressed',String(i===selected));b.querySelector('.fan-price').style.opacity=String(Math.max(0,1-a*2));});
       host.dataset.position=position.toFixed(3);host.dataset.reveal=reveal.toFixed(3);
       if(selected!==lastLabel){lastLabel=selected;onChange(selected,list[selected]);}
     }
     function revealTo(next){if(revealTarget===next&&revealFrame)return;revealTarget=next;cancelAnimationFrame(revealFrame);if(reduced()){reveal=next;paint();return;}const from=reveal,started=performance.now(),duration=next===1?800:460;function tick(now){const t=Math.min(1,(now-started)/duration),ease=t*t*(3-2*t);reveal=from+(next-from)*ease;paint();if(t<1)revealFrame=requestAnimationFrame(tick);else revealFrame=0;}revealFrame=requestAnimationFrame(tick);}
-    function resumeSifting(){clearTimeout(pauseTimer);revealTo(0);pauseTimer=setTimeout(()=>{if(gesture?.moved)revealTo(1);},480);}
     function go(next){target=Math.max(0,Math.min(list.length-1,next));cancelAnimationFrame(frame);if(reduced()){position=target;velocity=0;paint();return;}let previous=performance.now();
       function spring(now){const dt=Math.min(.025,(now-previous)/1000);previous=now;velocity+=(target-position)*240*dt;velocity*=Math.exp(-25*dt);position+=velocity*dt;paint();if(Math.abs(target-position)<.001&&Math.abs(velocity)<.01){position=target;velocity=0;paint();frame=0;}else frame=requestAnimationFrame(spring);}
       frame=requestAnimationFrame(spring);
     }
-    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length)return;cancelAnimationFrame(frame);clearTimeout(pauseTimer);velocity=0;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,lastX:e.clientX,lastTime:performance.now(),speed:0,moved:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
-    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,now=performance.now();if(Math.abs(dx)>4)gesture.moved=true;if(gesture.moved&&Math.abs(e.clientX-gesture.lastX)>.5)resumeSifting();const dt=Math.max(8,now-gesture.lastTime);gesture.speed=.6*gesture.speed+.4*(e.clientX-gesture.lastX)/dt;gesture.lastX=e.clientX;gesture.lastTime=now;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);position=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;paint();},{signal});
-    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;clearTimeout(pauseTimer);revealTo(1);host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){const speed=performance.now()-g.lastTime>120?0:g.speed;velocity=-speed/step()*1000;go(Math.round(position+Math.max(-1.5,Math.min(1.5,velocity*.09))));}else {go(Math.round(position));if(g.card>=0){if(g.card===Math.round(position))onOpen(list[g.card]);else go(g.card);}}e.preventDefault();}
+    host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length)return;cancelAnimationFrame(frame);velocity=0;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,lastX:e.clientX,lastTime:performance.now(),speed:0,moved:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
+    host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,now=performance.now();if(Math.abs(dx)>4&&!gesture.moved){gesture.moved=true;revealTo(0);}const dt=Math.max(8,now-gesture.lastTime);gesture.speed=.6*gesture.speed+.4*(e.clientX-gesture.lastX)/dt;gesture.lastX=e.clientX;gesture.lastTime=now;const raw=gesture.position-dx/step(),max=Math.max(0,list.length-1);position=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;paint();},{signal});
+    function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;gesture=null;revealTo(1);host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){const speed=performance.now()-g.lastTime>120?0:g.speed;velocity=-speed/step()*1000;go(Math.round(position+Math.max(-1.5,Math.min(1.5,velocity*.09))));}else {go(Math.round(position));if(g.card>=0){if(g.card===Math.round(position))onOpen(list[g.card]);else go(g.card);}}e.preventDefault();}
     host.addEventListener('pointerup',e=>release(e),{signal});host.addEventListener('pointercancel',e=>release(e,true),{signal});host.addEventListener('lostpointercapture',e=>{if(gesture)release(e,true);},{signal});
     host.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();go(target+(e.key==='ArrowRight'?1:-1));}},{signal});
     const observer=new ResizeObserver(paint);observer.observe(host);paint();
-    return {go,step:delta=>go(target+delta),destroy(){cancelAnimationFrame(frame);cancelAnimationFrame(revealFrame);clearTimeout(pauseTimer);controller.abort();observer.disconnect();},get selected(){return Math.round(position);}};
+    return {go,step:delta=>go(target+delta),destroy(){cancelAnimationFrame(frame);cancelAnimationFrame(revealFrame);controller.abort();observer.disconnect();},get selected(){return Math.round(position);}};
   }
 
   const aside=$('binder-layout').querySelector('.binder-aside');

@@ -23,3 +23,6 @@ body{color:var(--ink)}
 .habitat-pokemon:focus-visible{outline:none}.habitat-pokemon:focus-visible img{filter:drop-shadow(0 0 3px #6f9155) drop-shadow(0 5px 5px #6f915540)}
 
 .physical-pocket.vacant{touch-action:none;cursor:grab}.page-turning,.page-turning *{cursor:grabbing}
+
+/* Binder pages are physical drag surfaces, including their printed numbers. */
+.binder-book,.binder-book *{-webkit-user-select:none;user-select:none}
