@@ -25,7 +25,7 @@ Camera uploads retain their source dimensions, crop rectangle and zoom in the co
 
 The home-page tabs use your actual saved cards, images and AUD valuations:
 
-- **Binder:** a physical simulation with at least 20 pages and two stacks. New cards join stack one. Pull cards up out of sleeves, drop them in empty pockets or on either stack, and turn pages from a corner or an empty pocket. Occupied pockets cannot be swapped. Landscape tablets show a two-page spread. Tap a card for placement actions and full details.
+- **Binder:** a physical simulation with at least 20 pages and two stacks. New cards join stack one. Drag cards out of sleeves in any direction, drop them in empty pockets or on either stack, and turn pages with a short horizontal or diagonal tug from a corner or an empty pocket. Occupied pockets cannot be swapped. Landscape tablets show a two-page spread. Tap a card for placement actions and full details.
 - **Fan:** sift through overlapping cards, filter by Pokémon species type, search and sort. Cards stay overlapped while dragging and reveal the selected card after release. Tap the selected card to review its original valuation choices and details.
 - **Pokémon Zoo:** one character per identified species, with evolutions initially grouped together. Drag characters to arrange them; tap to open a fan of your copies and variants. **Share picture** uses mobile sharing when available, otherwise downloads a PNG.
 
