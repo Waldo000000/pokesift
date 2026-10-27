@@ -1,120 +1,180 @@
 # PokéSift
 
-A password-protected, camera-first Pokémon collection app with background identification, canonical card images and AUD valuations.
+A camera-first Pokémon collection app: scan cards in succession, watch their values arrive, then browse your collection. Supports Chinese printing lookups, canonical card images, AUD valuations and complete browser-local backups.
 
-## Render setup
+**Development app:** https://pokesift-dev.onrender.com/ — access requires a short-lived pairing invite from an existing device or the server administrator.
 
-In the `pokesift-dev` service's **Environment** settings, set these server-side secrets:
+## Using the app
 
-- `TCGAPI_KEY`: the TCG API key. Never use a frontend/public variable or put it in GitHub.
-- `POKESIFT_PASSWORD`: a different password-manager-generated password, at least 16 characters. Do not reuse the API key.
+1. Scan a pairing QR to remember your device for 30 days. A paired device can use **Add another device** to create another ten-minute invite.
+2. Open **Add cards** and take photos repeatedly, or select several existing photos. Up to two scans run concurrently; results and values appear in the camera tray without interrupting capture.
+3. Close the camera to browse, search and review your collection. Closing the camera stops video capture but lets queued scans finish; keep the page open until they complete.
+4. Review uncertain Chinese printing matches and confirm the correct card. Unsupported or unpriced cards stay in the collection with **Value unknown** and the identification details available so far.
+5. Use **Back up collection** regularly. Collections belong to this browser; pairing another device does not synchronize them.
 
-Save the environment and deploy the latest `main` commit. Cloud task secrets are separate from Render secrets; configuring one does not configure the other. The app returns 503 until both secrets are configured. `/healthz` remains available for hosting health checks and reveals no configuration details.
+Matched cards show a value directly in the collection and camera tray. Where multiple positive quotes exist, the default is the lowest estimate. The card detail selector lets you choose a particular printing/condition quote instead; that choice survives price changes, reloads and backups. Unconfirmed candidates never supply a valuation. Prices are catalog references, not an assessment of the physical card's condition, grade or authenticity.
 
-Open a fresh pairing QR once to remember a device for 30 days. There is no password prompt. A paired device can choose **Add another device** to generate a new QR inside the app. For bootstrap/recovery, securely inject the existing `POKESIFT_PASSWORD` into `scripts/create_invite.py --origin https://pokesift-dev.onrender.com --output /private/path/invite.svg`. Never put the password in command arguments or Git. The QR itself is a temporary bearer credential; do not commit it either.
+## Identification, images and prices
 
-Invites are reusable for ten minutes. They carry an HMAC-SHA256 signature derived from the environment password with purpose separation; invite and session tokens cannot be substituted for each other. Both token types are bound to the exact app origin and expiry. The QR carries the invite in a URL fragment, which is removed immediately by the page and exchanged via a same-origin HTTPS POST. It is never stored in localStorage. Production sessions use a `__Host-` cookie with Secure, HttpOnly, SameSite=Strict, Path=/ and a 30-day expiry. Existing sessions survive deployments with the same password. Password rotation revokes all sessions and invites. Sign out clears this browser's cookie; it does not revoke a stolen copy or erase local collection data. This stateless development design has no per-device revocation database.
+| Service | Role | Configuration and coverage |
+| --- | --- | --- |
+| [TCG API](https://api.tcgapi.dev/) | Primary photo identification and prices | `TCGAPI_KEY`; its catalog documents English printings and Japanese Pokémon support. |
+| [PikaQian](https://pikaqian.com/docs/) | Secondary Chinese catalog, canonical images and raw-card prices | `PIKAQIAN_API_KEY`; Free provides catalog access, while raw prices require Hobby or above. Variant coverage also depends on the plan. |
+| [Frankfurter](https://frankfurter.dev/) | Public ECB-derived exchange rates for AUD display | No API key. Rates are cached for six hours. |
 
-`render.yaml` configures a free Python service and deployment on `main` commits. GitHub must be connected to Render for automatic deploys; otherwise use Manual Deploy. Free instances can sleep. The old `.openai/hosting.json` is historical and unused.
+New unsupported, not-found or ambiguous Pokémon scans with a readable name and collector number automatically try PikaQian. This sends saved identification details, not another photo. Existing entries offer **Check Chinese catalog**; confirmed PikaQian entries offer **Refresh Chinese card details**. Reloading or restoring a backup never repeats a lookup automatically.
 
-## Protections and limits
+PikaQian matches require name and number agreement. A unique match can be confirmed automatically when set, printed total and finish/stamp agree. OCR corrections, missing details or incomplete searches require user confirmation. Another language's printing or a base card's price is never silently substituted for the actual Chinese variant.
 
-- The static sign-in shell and health checks are public and contain no secrets. Scanning, catalog images, rates and creating invites require a signed device session. No HTTP Basic authentication challenges are sent.
-- Missing/short passwords, identical API key and password, or a missing API key fail closed.
-- Same-origin POST checks, exact deployment Host validation, no CORS grant, no automatic redirects or retries, and TLS verification for the fixed provider endpoint.
-- API key comes only from the server environment; client `X-API-Key` headers cannot override it. Provider key echoes are redacted server-side, including JSON-escaped strings.
-- No application request logging, analytics, or API keys in browser storage. Capture thumbnails, catalog images and card details are stored locally as part of the collection; full-resolution uploads are not retained by the backend. Hosting/provider policies and browser credential caching are separate. Keep platform request-body/header logging disabled.
-- Images limited to 8 MB; response size capped; concurrent requests bounded. A shared budget permits at most 10 provider attempts per hour per process, including failures. This budget resets on restarts and is not a durable spending cap; use provider-side spending controls for a hard limit and a shared persistent limiter before scaling to multiple instances.
-- The backend sends `PokeSift/0.1` as its application identifier; Python's default user agent was rejected with a non-JSON Cloudflare error.
+Confirmed cards save a compact canonical image from TCGPlayer or PikaQian alongside the capture thumbnail. Unconfirmed candidates can have labelled previews but do not replace the saved card image. Catalog image retrieval consumes no TCG identification scan. PikaQian cards include a source link.
 
-Each photo may consume a scan, including timeouts. Never automatically retry. Prices are catalog references, not an appraisal of the physical card's condition, grade, or authenticity. Missing currency and condition remain explicitly unspecified.
+### Pricing access and currency
 
-## Development
+A price visible on PikaQian's public website does **not** imply that a Free API key can retrieve it. The app distinguishes a pricing-plan restriction from a card with no recorded raw-card price. After upgrading the account, the same key can fetch missing prices without rescanning; a plan denial is cached for 60 seconds. The app never upgrades subscriptions itself.
 
-Python 3.12+ with the pinned `qrcode` dependency (`pip install -r requirements.txt`). Node.js checks JavaScript. Inject `TCGAPI_KEY` and a separate `POKESIFT_PASSWORD` securely in the process environment, then run:
+Original provider prices and currencies are retained, while headline values are displayed in **AUD**:
+
+- TCG quotes without a currency are assumed to be USD, based on [TCGPlayer's documented marketplace currency](https://help.tcgplayer.com/hc/en-us/articles/23375212682519-How-to-Buy-Internationally-on-TCGplayer). Each assumption records the missing provider currency, an assumption flag and its source. Explicit currencies are preserved.
+- PikaQian's `PriceSummary.grades.raw.price_cents` is retained as integer USD cents, with a derived USD quote for conversion. Graded-price buckets never value an ungraded card. Provider observations preserve pricing provenance, dates and sales metadata.
+- AUD amounts are calculated using Frankfurter's AUD-based rates: `source amount / source-currency units per AUD`. Changing exchange rates changes the display, not the stored quote. The rate date and source are visible; cached fallback rates are labelled.
+
+Rates refresh on page load, on return after six hours, or through the footer refresh button. If conversion is unavailable, the app shows **AUD unavailable**. It does not guess which quote is lowest across currencies without the necessary rates. An unknown price is never treated as zero.
+
+### Updating missing prices
+
+**Update missing prices** appears above the collection, with an explanation when no cards are eligible. It works on confirmed PikaQian cards and uses saved provider card IDs to fetch prices directly, with no recognition scan, catalog search or image download. Duplicate copies share one lookup; cards with positive quotes and unconfirmed matches are skipped.
+
+| Safeguard | Behaviour |
+| --- | --- |
+| Batch size and pacing | At most 25 distinct printings per run, sequentially, with a two-second pause between requests. |
+| Retries | None. Reload never resumes a batch. |
+| Immediate stops | Access, plan, configuration or rate-limit errors; an open provider circuit; or a request timeout. |
+| Other errors | Stop after three consecutive failures or five failures in total. |
+| No recorded sales | Save the result and skip that printing for 24 hours, including duplicate copies and after reload/restore. |
+| User control | Inline progress and **Stop update**; the current request can finish and save, then no further calls begin. |
+| Interrupted use | Hiding the page, signing out, another tab changing the collection, or a storage failure stops further work. |
+
+Each completed lookup saves immediately. Failed requests do not clear existing prices. Server-side caches, request budgets and failure pauses are shared across devices within the running process; see [Security and operational limits](#security-and-operational-limits).
+
+## Storage, backups and future migration
+
+There is no collection database or cloud synchronization. Data stays in the current browser:
+
+| Browser store | Contents |
+| --- | --- |
+| localStorage `pokesift.collection.v1` | Entries, stable IDs, timestamps, capture thumbnails, canonical images, identification results, provider observations, confirmed catalog matches, original prices/currencies, valuation selections and price-check outcomes. |
+| IndexedDB `pokesift-media`, store `scan-images` | The exact prepared image uploaded for each new scan, up to 2048 pixels / 8 MB. This is not the original full-resolution camera file. |
+| localStorage `pokesift.fx.v1` | Cached exchange rates and their provenance. |
+
+**Back up collection** downloads a version 2 JSON backup combining both storage systems and the rate cache. It includes archived scan images and a `missingScanImages` list for any expected images that could not be recovered. Passwords, session cookies and invites are excluded.
+
+**Restore backup** accepts version 1 and 2 backups, up to 250 MB / 1,000 entries. It merges by entry ID, skips existing card records and can fill missing archived images. Pending scans become interrupted records. Restore makes no identification or catalog-image requests. Keep the original file until the restored collection is verified.
+
+Saved identifiers, raw server-redacted provider observations and archived uploads can support a future database migration or another provider without photographing cards again. Older entries only have the images retained when they were created; lost resolution cannot be recovered. A new paid processing operation would still consume that provider's allowance.
+
+Browser storage has finite capacity. Failures remain visible, with unsaved data retained in memory for backup before leaving. Concurrent-tab edits are guarded against silent overwrites. Clearing browser data removes the collection; local records and backup files are not encrypted against someone with access to the browser profile or file.
+
+## Deployment and device access
+
+The app uses a Python server and static HTML/CSS/JavaScript, with no frontend build step. [`render.yaml`](render.yaml) defines the free Render service, health check, Python version, build command and automatic deployment from `main`. Connect the GitHub repository to Render and provide the server-side environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `TCGAPI_KEY` | Required primary provider key. |
+| `POKESIFT_PASSWORD` | Required signing secret, at least 16 characters and different from the API key. Generate it with a password manager; users sign in through invites, not a password prompt. |
+| `PIKAQIAN_API_KEY` | Enables Chinese catalog and pricing requests; optional for primary scanning. Pricing requires the appropriate provider plan. |
+| `PUBLIC_ORIGIN` | Optional exact public HTTPS origin, without a path or trailing slash. Overrides `RENDER_EXTERNAL_URL`. |
+| `RENDER_EXTERNAL_URL` | Public origin supplied automatically by Render. |
+| `PORT` | Server port; defaults to `8000`. |
+
+Save secrets in **Render → Service → Environment** and deploy. Cloud development secrets and Render secrets are separate. Never use frontend/public environment variables for provider keys. The app reads process environment variables; it does not load `.env` files automatically.
+
+Use `server.py`, not a static file server. With a public origin configured, it binds to `0.0.0.0` and must run behind an HTTPS reverse proxy. Without one, it binds to loopback for local development. The public shell and `/healthz` remain available when configuration is missing, but protected data APIs fail closed. Free Render instances can sleep between requests.
+
+### First device or recovery
+
+With dependencies installed and the deployed `POKESIFT_PASSWORD` securely supplied in the process environment, generate an invite:
+
+```sh
+python3 scripts/create_invite.py \
+  --origin https://pokesift-dev.onrender.com \
+  --output /tmp/pokesift-invite.svg
+```
+
+Use a new output filename: the helper refuses to overwrite an existing file. Scan the SVG QR within ten minutes, then delete it. The QR is a temporary bearer credential; keep it private and out of Git. Never pass the signing secret as a command argument. Once paired, **Add another device** handles subsequent invites inside the app.
+
+Invites are reusable for ten minutes and bound to the exact origin. The invite is carried in the URL fragment, removed immediately by the page, then exchanged through a same-origin POST. It is never stored in localStorage. Production sessions use a 30-day `__Host-` cookie with `Secure`, `HttpOnly` and `SameSite=Strict`.
+
+Deployments preserve sessions when the signing secret and origin stay the same. Rotating `POKESIFT_PASSWORD` revokes all sessions and invites. Signing out clears this browser's cookie, not its collection or a copied session token. There is no individual-device revocation database.
+
+## Local development and tests
+
+Use Python 3.12 and Node.js 24 (the CI versions). Node is needed for checks and browser tests, not the running app. From the repository root, install dependencies in your preferred Python environment:
+
+```sh
+pip install -r requirements.txt
+npm ci
+npx playwright install --with-deps chromium
+```
+
+Supply `TCGAPI_KEY` and a separate `POKESIFT_PASSWORD` in the process environment, then run:
 
 ```sh
 python3 server.py
 ```
 
-Use `server.py`, not a static file server. Local mode binds only to loopback; public mode uses Render's `RENDER_EXTERNAL_URL` (or an exact HTTPS `PUBLIC_ORIGIN`, without a trailing slash) and must run behind an HTTPS reverse proxy. The browser submits to `/api/identify` on the same origin. No shared secret is baked into browser assets.
+For local browser access, run this in another terminal with the same signing secret and open the printed temporary invite URL privately. It is valid only for the exact local origin below; adjust the port if necessary.
+
+```sh
+python3 - <<'PY'
+import os
+from auth import mint_token
+
+origin = 'http://127.0.0.1:8000'
+token = mint_token(os.environ['POKESIFT_PASSWORD'], 'invite', origin)
+print(f'{origin}/#invite={token}')
+PY
+```
+
+The SVG helper requires HTTPS; the local URL above is for loopback development. Use the deployed HTTPS app for phone camera testing. Real scans consume provider allowance, including some failed or timed-out requests; never retry automatically.
+
+Run the automated checks without real provider credentials or scans:
 
 ```sh
 python3 -m unittest discover -s tests -v
 node --check dist/app.js
-```
-
-Automated tests use fake secrets and simulated provider responses and consume no scans. A separate real mobile-browser test confirmed the environment-key flow identified Koraidon ex 254/198 while sending no API key in the browser request. Do not commit photos, credentials, or provider responses.
-
-## Collection flow
-
-Open **Add cards**, allow camera access, and capture repeatedly, or choose several photos. Images are prepared client-side (up to 2048 pixels), then identified with at most two concurrent requests. Results and estimated AUD values arrive in the camera tray without interrupting capture. Closing the camera stops its video tracks but leaves the scan queue running. There are no automatic scan retries.
-
-The collection, capture thumbnails, catalog thumbnails and original provider results are saved under `pokesift.collection.v1` in this browser's localStorage. No collection is uploaded to a database or synchronized between devices. Clearing browser data removes it; use **Export collection** for a JSON backup. Interrupted scans are never resubmitted after reload. Storage errors remain visible and the in-memory collection can still be exported. Concurrent-tab edits do not silently overwrite each other.
-
-For a confirmed match, the returned TCGPlayer ID fetches a canonical image from a fixed TCGPlayer CDN URL through an authenticated backend endpoint. It costs no identification scan. The app stores a compact copy locally and retains the capture thumbnail as a fallback; card details can switch between catalog and captured images. Uncertain candidates do not replace the user's photo.
-
-## Currency and valuation provenance
-
-The original `market_price` is never converted in storage. An explicit provider currency is preserved. When absent, the app records `currency: "USD"`, `provider_currency: null`, `currency_assumed: true`, and the source URL, with `currencyAssumed` also flagged on the collection entry. TCG API documents TCGPlayer as its pricing source; [TCGPlayer confirms its marketplace prices are USD](https://help.tcgplayer.com/hc/en-us/articles/23375212682519-How-to-Buy-Internationally-on-TCGplayer). Legacy entries receive the same explicit assumption metadata when loaded.
-
-All headline valuations are calculated in AUD using [Frankfurter's public ECB-derived rates](https://frankfurter.dev/). `/api/exchange-rates` obtains AUD-based rates: `AUD amount = original amount / units of original currency per AUD`. The date and rate source remain visible. Rates are cached separately under `pokesift.fx.v1`; refreshed on page load, on return after six hours, and through the footer refresh button (server cache lifetime six hours). No stored quote is changed when exchange rates move. Cached fallback rates are labelled; if conversion is unavailable, the UI never relabels the source amount as AUD. These are reference conversions, not bank or exchange fees.
-
-## Browser regression tests
-
-```sh
-npm ci
-npx playwright install chromium
+node --check dist/photo-store.js
+node --check dist/auth.js
 npm run test:browser
 ```
 
-Browser tests start a temporary authenticated local server and mock every identification and rate request. They cover rapid multi-upload, out-of-order responses, the two-request limit, camera capture/release, quiet price arrivals, canonical-image persistence, browsing/search/review filtering, reload interruption, storage failure, currency assumptions, explicit non-USD currencies, and AUD revaluation without mutating source quotes. They consume no real scans. GitHub Actions runs both these and the Python suite. For manual live verification, keep a strict scan budget and never retry a paid request automatically.
+Tests use fake credentials and mocked upstream responses. The browser suite starts a temporary local server and covers capture queues, mobile layout, result arrivals, valuation choices, currencies, Chinese matching, bulk pricing, storage failures and backup/restore. [GitHub Actions](.github/workflows/checks.yml) runs the Python, JavaScript syntax and browser checks.
 
-## Backups and future database migration
+PikaQian pricing is tested against schema-based fixtures. The live key was on Free during initial integration verification; a real pricing-enabled response still needs verification after an account upgrade.
 
-**Back up collection** downloads a versioned JSON backup containing all collection entries: stable entry IDs, capture timestamps, original identification results and candidates, original prices/currencies, assumption flags and provenance, capture thumbnails, canonical image data, scan outcomes/messages, plus the separately cached exchange rates. It contains no passwords, session cookies or invites. The original API responses and images can be migrated to a database without scanning again.
+### Code map
 
-**Restore backup** accepts current versioned backups and the earlier `version: 1` collection exports. It validates images/result structures, merges by entry ID without replacing existing records, and skips duplicate IDs. Pending scans become interrupted records and are never resubmitted. Import makes no identification or catalog-image requests. Imports are limited to 250 MB/1,000 entries; localStorage quota failures remain visible and imported data can be exported from memory before leaving. Keep the original backup until you confirm the restore. Local collections are not encrypted against another person using the same browser profile.
+| Path | Responsibility |
+| --- | --- |
+| [`server.py`](server.py) | HTTP server, authenticated provider forwarding, images, rates and request limits. |
+| [`auth.py`](auth.py) | Purpose-separated, origin-bound invite and session signatures. |
+| [`pikaqian.py`](pikaqian.py) | Chinese catalog matching, pricing, cache and provider failure controls. |
+| [`dist/`](dist/) | Browser UI, capture queue, valuations, collection and local media storage. |
+| [`scripts/create_invite.py`](scripts/create_invite.py) | Bootstrap/recovery QR generation. |
+| [`tests/`](tests/) | Python unit tests and Playwright browser regression suite. |
 
+## Security and operational limits
 
-## Unsupported printings and future providers
+Provider keys stay server-side. Protected endpoints require a signed device session; POSTs also require the correct origin. The backend validates the deployment host, uses fixed provider/CDN hosts, verifies TLS, bounds request/response sizes and follows no redirects or automatic retries. Provider key echoes are redacted before responses reach the browser. There are no application request logs or analytics; keep hosting request-body/header logging disabled too.
 
-TCG API currently documents English printings and Japanese Pokémon support. A language outside its catalog is not a failed collection entry: the app displays the name, number, set, finish and language clues read from the photo and explicitly shows **Value unknown**. Unconfirmed candidates never supply a displayed valuation or a canonical image. Existing saved responses gain this display without rescanning. Unknown does not mean a value of zero.
+The backend does not persist collection photos or provider responses. TCG API receives the scan image; PikaQian receives identification metadata or saved provider IDs. Provider retention policies remain separate from the app's storage behaviour.
 
-New scans retain the exact prepared upload (up to 2048 pixels / 8 MB) in device-local IndexedDB `pokesift-media`, alongside localStorage metadata and thumbnails. `scanPhoto` records its key, MIME type, size and persistence outcome. Storage failures retain the blob in memory, show a warning and prompt before leaving; back up before closing the page. Older entries only have their previously retained images. Their original resolution cannot be recovered retroactively.
+| Provider protection | Current limit per server process |
+| --- | --- |
+| TCG identification | 10 attempts/hour, including failures; uploads up to 8 MB. |
+| PikaQian requests | 60 upstream attempts/hour, including failures; five-minute cache with up to 250 entries. Catalog searches inspect at most 100 records and three candidate details. |
+| PikaQian provider failures | Five-minute pause after three failures, a malformed price summary, invalid credentials or quota rejection. Pricing-plan denial is cached for 60 seconds. |
 
-`providerObservations` retains the raw, server-redacted identification response before display normalization, the provider, operation, request parameters and response timestamp. Older entries are explicitly labelled `previously_saved_result`. These observations and printed identifiers can be reused for future catalog queries. If another vision service needs a photo, it can reuse the archived upload after the user authorizes any paid processing. The secondary catalog lookup below reuses those details without resubmitting photos.
+These controls reset on restart and are independent across server instances. They are **not a durable monthly spending cap**. Provider account quotas remain authoritative; use provider-side spending controls and a shared persistent limiter before scaling.
 
-Backup version 2 includes **both** browser stores: all metadata, provider observations, scan images, thumbnails, catalog images, pricing/currency provenance and the rate cache. The `missingScanImages` list identifies any expected photos that could not be recovered. Restore supports version 1 and 2, can fill missing scan images for duplicate entry IDs, and performs no API identification requests. A database migration can consume this evidence without asking users to photograph their cards again, subject to the retained evidence's quality.
-
-Provider research: TCGdex offers free multilingual metadata, including Chinese set lists, but the tested Simplified Chinese set `CS1aC` returned no card records, and `CSWhSC` was not present in either Chinese set list. Subsequent PikaQian research found the matching Delibird `011/058` under `CSVH5C`; the earlier `CSWhSC` was likely an OCR error. Its exact catalog image exists, but no recorded price was observed. Scrydex documents a separate Vision API (5 credits/request plus API key and team ID); it has not been connected or tested here. Another language's artwork/price is never silently substituted for the actual printing.
-
-## Collection valuation choice
-
-Matched cards show the lowest positive available quote directly in the collection, camera result tray and incoming-result banner, labelled “Lowest estimate” when multiple quotes exist. Different currencies are compared in AUD; if required exchange rates are missing, the app does not guess which is lower. Missing/zero placeholder quotes are excluded. Unconfirmed card candidates still show an unknown value.
-
-The card detail selector lets the user choose a printing/condition quote or return to automatic lowest-value selection. `selectedPriceKey` stores the quote's printing, condition, currency and source identity separately from provider observations, so changing price amounts or quote ordering does not change the selection. Local storage and backups preserve the choice. Original quotes and provider evidence remain unchanged.
-
-## PikaQian secondary catalog and pricing
-
-Set `PIKAQIAN_API_KEY` on the backend (Render Environment). The key is never sent to browsers, images, URLs or logs. New unsupported/not-found/ambiguous Pokémon scans with a readable name and collector number automatically query the Chinese catalog without sending another photo. Existing saved entries have **Check Chinese catalog** in their details; confirmed PikaQian entries have **Refresh Chinese card details**. Reloading or importing does not replay lookups.
-
-Name and number must agree. Exact set, known printed total and finish/stamp agreement can confirm a unique match; uncertain OCR corrections, unknown totals, unknown finishes and partial searches require the user's confirmation. Candidate previews are labelled as possible printings and become the saved canonical image only after confirmation. The original TCG response remains untouched; the separate `catalogMatch`, observations, source IDs and explicit confirmation are saved and backed up. No Japanese or English quote is substituted for the Chinese printing.
-
-PikaQian's public website and API have different pricing access. The API **requires Hobby or above for raw prices**. A Free key returns `403 tier_required` from `/prices`, even for cards priced on its website. The app distinguishes this from `404 price_not_found` or an empty raw-grade price. An account upgrade uses the same key; pricing access is rechecked after a short (60-second) denial cache. It does not require another scan. No subscription upgrade is made by the app.
-
-`PriceSummary.grades.raw.price_cents` is stored as original integer **USD cents**, alongside the derived USD major-unit quote used by the existing AUD display. Original price summaries, source, date and sales-count metadata are retained. Graded buckets never value a raw card. The pricing-enabled parser is covered by schema-based fixtures; the live key was Free during initial verification, so a live paid-price response remains to be verified after upgrade.
-
-Catalog API requests use fixed hosts, bounded responses, no redirects, a five-minute/250-entry cache, and a process-local limit of 60 upstream attempts/hour (not a durable monthly spending cap). Searches read at most 100 records and three candidate details; incomplete results are never auto-confirmed. Images are fetched only from the provider's fixed CDN and card-ID path, with no API credentials. Every displayed PikaQian card has a visible source link. Free-tier variant coverage is limited; a missing reverse variant must not be replaced silently with its base printing.
-
-References: [API pricing schema](https://pikaqian.com/docs/api/get-card-prices-v-1-cards-card-id-prices-get/), [plans](https://pikaqian.com/docs/tiers-and-rate-limits/), [terms](https://pikaqian.com/terms). PikaQian's raw-data redistribution and post-downgrade retention restrictions still apply; private collection backup permission has not been separately confirmed with the provider. The app preserves the user's combined collection backup and does not offer a public bulk catalog export.
-
-## Bulk missing-price updates
-
-**Update missing prices** appears above the collection for confirmed PikaQian printings. It calls the authenticated, same-origin `POST /api/pikaqian-prices` endpoint with the saved provider card ID. Each uncached lookup makes just one upstream `/cards/{id}/prices` request; no recognition, catalog search, set lookup or image request is made. Duplicate copies share the lookup. Cards already holding a positive quote and unconfirmed matches are skipped.
-
-Each user-started run handles at most 25 distinct printings, one at a time, with a two-second pause between calls. There are no automatic retries. Access/plan/configuration failures, rate limits, provider circuit-breaker errors and timeouts stop the run immediately. Other failures stop it after three consecutive errors or five errors in total. A healthy no-sales response counts as a completed lookup and is recorded with `priceCheck`; the same printing is skipped for 24 hours across reloads and backups. Existing prices are never cleared by a failed request.
-
-Progress and stop controls are inline. Stop allows the in-flight request to finish and save, then sends nothing more. Hiding the page, signing out or another tab modifying the collection also stops further work. Results save after each lookup; a storage failure stops the run. Reload never resumes a batch. Price observations, original USD cents, source dates and confirmation choices stay in local storage/backups; prices display in AUD.
-
-Server protections are shared by all devices within the running process: the existing 60-upstream-attempts/hour limit, five-minute cached prices/no-sales results, a five-minute circuit pause after three provider failures or a malformed price summary, and five-minute pauses for invalid credentials or quota rejection. Plan denial is cached for 60 seconds. These controls reset on service restart and are not a durable monthly allowance cap. PikaQian's own account quota remains authoritative.
+PikaQian's [pricing schema](https://pikaqian.com/docs/api/get-card-prices-v-1-cards-card-id-prices-get/), [plans](https://pikaqian.com/docs/tiers-and-rate-limits/) and [terms](https://pikaqian.com/terms) govern pricing access, attribution, commercial use and data retention. Its raw-data redistribution and post-downgrade retention restrictions also matter for backups and future migration; permission for private complete backups has not been separately confirmed. The app exports the user's combined collection, not a public bulk catalog.

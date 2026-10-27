@@ -403,13 +403,14 @@ function missingPriceGroups() {
 }
 function renderBulkPrices() {
   const count=missingPriceGroups().size;
-  $('bulk-pricing').hidden=!entries.some(priceCardId) && !priceBatch.message;
+  const hasConfirmed=entries.some(priceCardId);
+  $('bulk-pricing').hidden=false;
   $('update-missing-prices').disabled=priceBatch.running || !count || readOnlyStorage;
   $('update-missing-prices').textContent=priceBatch.running?'Updating missing prices…':'Update missing prices'+(count?' ('+count+')':'');
   $('stop-price-update').hidden=!priceBatch.running;
   $('stop-price-update').disabled=Boolean(priceBatch.stop);
   $('stop-price-update').textContent=priceBatch.stop?'Stopping after current lookup…':'Stop update';
-  $('bulk-price-status').textContent=priceBatch.message || (count ? count+' distinct printings ready. Duplicate copies share one lookup.' : 'No prices to update. Cards with no sales are checked at most once a day.');
+  $('bulk-price-status').textContent=priceBatch.message || (count ? count+' distinct printings ready. Duplicate copies share one lookup.' : !entries.length ? 'Add cards to your collection to get started.' : !hasConfirmed ? 'No confirmed Chinese printings yet. Open a Chinese card, choose “Check Chinese catalog” and confirm its printing before updating prices.' : 'No prices to update. Cards with no sales are checked at most once a day.');
 }
 function stopPriceBatch() {
   if(!priceBatch.running)return;

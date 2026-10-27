@@ -33,6 +33,9 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   });
   await page.goto(`http://127.0.0.1:${port}`);
   assert.equal(await page.locator('#key').count(),0);
+  await page.locator('#bulk-pricing').waitFor({state:'visible'});
+  assert(await page.locator('#update-missing-prices').isDisabled());
+  assert.match(await page.locator('#bulk-price-status').textContent(),/Add cards/);
   await page.locator('#open-camera').click();
   await page.locator('#photo-input').setInputFiles([photo,{...photo,name:'second.png'},{...photo,name:'third.png'}]);
   await waitFor(()=>page.locator('.tray-card').count().then(n=>n===3));
@@ -45,6 +48,9 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await waitFor(()=>page.locator('#activity').isHidden());
   assert.equal(count,3);assert.equal(maxInflight,2);
   assert.equal(await page.locator('.card-tile').count(),3);
+  assert(await page.locator('#bulk-pricing').isVisible());
+  assert(await page.locator('#update-missing-prices').isDisabled());
+  assert.match(await page.locator('#bulk-price-status').textContent(),/Check Chinese catalog/);
   await page.locator('.card-tile').filter({hasText:'Card 1'}).click();
   assert.match(await page.locator('#detail-prices').textContent(),/Original quote: 5.4 USD \(currency assumed\)/);
   await page.locator('#close-detail').click();
