@@ -1,9 +1,13 @@
+import base64
 import http.client
 import json
 import threading
 import unittest
 from server import make_server, forward
 from unittest.mock import patch, MagicMock
+
+PASSWORD = 'test-app-password-1234'
+AUTH = 'Basic ' + base64.b64encode(('pokesift:' + PASSWORD).encode()).decode()
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'test'
 
@@ -17,7 +21,8 @@ class ServerTests(unittest.TestCase):
             if isinstance(self.reply, Exception):
                 raise self.reply
             return self.reply
-        self.server = make_server(0, forward)
+        with patch.dict('os.environ', {'TCGAPI_KEY': 'test-key', 'POKESIFT_PASSWORD': PASSWORD}):
+            self.server = make_server(0, forward)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.host = f'127.0.0.1:{self.server.server_port}'
@@ -28,7 +33,7 @@ class ServerTests(unittest.TestCase):
         self.thread.join()
 
     def request(self, body=PNG, **changes):
-        headers = {'Origin': 'http://' + self.host, 'Content-Type': 'image/png', 'X-API-Key': 'test-key'}
+        headers = {'Origin': 'http://' + self.host, 'Content-Type': 'image/png', 'Authorization': AUTH}
         headers.update(changes)
         conn = http.client.HTTPConnection(self.host, timeout=5)
         conn.request('POST', '/api/identify', body, headers)
@@ -44,6 +49,48 @@ class ServerTests(unittest.TestCase):
         self.assertNotIn(b'test-key', body)
         self.assertIn(b'[REDACTED]', body)
         self.assertEqual(headers['Cache-Control'], 'no-store')
+
+    def test_anonymous_cannot_spend_scans(self):
+        status, _, headers = self.request(Authorization='')
+        self.assertEqual(status, 401)
+        self.assertIn('WWW-Authenticate', headers)
+        self.assertEqual(self.calls, [])
+
+    def test_wrong_password_cannot_spend_scans(self):
+        self.assertEqual(self.request(Authorization='Basic dXNlcjpiYWQ=')[0], 401)
+        self.assertEqual(self.calls, [])
+
+    def test_browser_key_cannot_override_server_secret(self):
+        self.assertEqual(self.request(**{'X-API-Key': 'attacker-key'})[0], 200)
+        self.assertEqual(self.calls[0][0], 'test-key')
+
+    def test_missing_configuration_fails_closed(self):
+        for key, password in [('', PASSWORD), ('test-key', ''), ('test-key', 'short'), (PASSWORD, PASSWORD)]:
+            self.server.api_key, self.server.app_password = key, password
+            self.assertEqual(self.request()[0], 503)
+        self.assertEqual(self.calls, [])
+
+    def test_hourly_scan_limit(self):
+        for _ in range(10):
+            self.assertEqual(self.request()[0], 200)
+        self.assertEqual(self.request()[0], 429)
+        self.assertEqual(len(self.calls), 10)
+
+    def test_page_requires_login_and_has_no_key_field(self):
+        conn = http.client.HTTPConnection(self.host, timeout=5)
+        conn.request('GET', '/')
+        r = conn.getresponse()
+        self.assertEqual(r.status, 401)
+        r.read()
+        conn.close()
+        conn = http.client.HTTPConnection(self.host, timeout=5)
+        conn.request('GET', '/', headers={'Authorization': AUTH})
+        r = conn.getresponse()
+        self.assertEqual(r.status, 200)
+        body = r.read()
+        self.assertNotIn(b'id="key"', body)
+        self.assertNotIn(b'test-key', body)
+        conn.close()
 
     def test_foreign_origin_never_forwarded(self):
         self.assertEqual(self.request(Origin='https://foreign.example')[0], 403)

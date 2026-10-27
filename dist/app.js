@@ -1,7 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
 let previewUrl, responseText = '', running = false;
-$('clear').onclick = () => { $('key').value = ''; $('key').focus(); };
 $('photo').onchange = () => {
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   const file = $('photo').files[0];
@@ -48,20 +47,19 @@ function render(data) {
 }
 $('test').onsubmit = async event => {
   event.preventDefault(); if (running) return;
-  const key = $('key').value.trim(), file = $('photo').files[0];
-  if (!key || !file) return;
+  const file = $('photo').files[0];
+  if (!file) return;
   if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { $('status').textContent = 'Choose a JPG, PNG or WebP image. HEIC photos need to be exported as JPG first.'; return; }
   if (file.size > 8 * 1024 * 1024) { $('status').textContent = 'This photo exceeds 8 MB. Choose a smaller image.'; return; }
   responseText = ''; $('raw').textContent = '';
-  running = true; $('run').disabled = true; $('photo').disabled = true; $('key').disabled = true; $('result').hidden = true; $('copy').textContent = 'Copy response';
+  running = true; $('run').disabled = true; $('photo').disabled = true; $('result').hidden = true; $('copy').textContent = 'Copy response';
   $('status').textContent = 'Sending one photo to TCG API. Please keep this page open…';
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(),60000);
   const start = performance.now();
   try {
-    const response = await fetch('/api/identify', {method:'POST',headers:{'X-API-Key':key,'Content-Type':file.type},body:file,signal:controller.signal,credentials:'omit',redirect:'error',referrerPolicy:'no-referrer'});
+    const response = await fetch('/api/identify', {method:'POST',headers:{'Content-Type':file.type},body:file,signal:controller.signal,credentials:'same-origin',redirect:'error',referrerPolicy:'no-referrer'});
     const raw = await response.text();
-    // Redact the entered key if the upstream ever echoes it.
-    responseText = raw.split(key).join('[REDACTED]');
+    responseText = raw; // The backend redacts its private API key.
     let data; try { data = JSON.parse(responseText); responseText = JSON.stringify(data,null,2); } catch {}
     $('raw').textContent = responseText;
     const elapsed = ((performance.now() - start)/1000).toFixed(1);
@@ -70,6 +68,6 @@ $('test').onsubmit = async event => {
     else { render(data); $('status').textContent = 'Response received in ' + elapsed + 's.' + (data.meta?.scans_remaining != null ? ' Scans remaining: ' + data.meta.scans_remaining + '.' : ''); }
   } catch (error) {
     $('status').textContent = error.name === 'AbortError' ? 'The request timed out after 60 seconds. It may still have used a scan. Check your provider dashboard before retrying.' : 'The browser could not read an API response. This can be a connection problem or a backend failure. A scan may have been used; check your dashboard before retrying. PokéSift forwards requests only to TCG API.';
-  } finally { clearTimeout(timeout); running = false; $('run').disabled = false; $('photo').disabled = false; $('key').disabled = false; }
+  } finally { clearTimeout(timeout); running = false; $('run').disabled = false; $('photo').disabled = false; }
 };
-window.addEventListener('pagehide',() => { $('key').value = ''; if(previewUrl) URL.revokeObjectURL(previewUrl); });
+window.addEventListener('pagehide',() => { if(previewUrl) URL.revokeObjectURL(previewUrl); });

@@ -1,4 +1,9 @@
 """PokéSift development service; public deployments require an HTTPS reverse proxy."""
+import base64
+import hashlib
+import hmac
+import time
+from collections import deque
 import json
 import os
 from pathlib import Path
@@ -40,7 +45,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def send(self, status, body, mime='application/json'):
+    def send(self, status, body, mime='application/json', challenge=False):
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(body)))
@@ -48,6 +53,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+        if challenge:
+            self.send_header('WWW-Authenticate', 'Basic realm="PokeSift", charset="UTF-8"')
+        if self.server.public_origin:
+            self.send_header('Strict-Transport-Security', 'max-age=31536000')
         self.end_headers()
         self.wfile.write(body)
 
@@ -66,11 +75,31 @@ class Handler(BaseHTTPRequestHandler):
     def expected_origin(self):
         return self.server.public_origin or 'http://' + self.headers.get('Host', '')
 
+    def authorize(self):
+        key, password = self.server.api_key, self.server.app_password
+        if not key or len(password) < 16 or key == password:
+            self.error(503, 'App access has not been configured. Contact the app owner.')
+            return False
+        try:
+            scheme, encoded = self.headers.get('Authorization', '').split(' ', 1)
+            if scheme.lower() != 'basic':
+                raise ValueError()
+            user, supplied = base64.b64decode(encoded, validate=True).decode('utf-8').split(':', 1)
+        except (ValueError, UnicodeError):
+            user, supplied = '', ''
+        password_ok = hmac.compare_digest(hashlib.sha256(supplied.encode()).digest(), hashlib.sha256(password.encode()).digest())
+        if not (password_ok and user == 'pokesift'):
+            self.send(401, b'{"error":{"message":"Sign in to PokeSift."}}', challenge=True)
+            return False
+        return True
+
     def do_GET(self):
         if self.path == '/healthz':
             return self.send(200, b'{"status":"ok"}')
         if not self.valid_host():
             return self.error(403, 'Unrecognized host')
+        if not self.authorize():
+            return
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
         if self.path not in files:
             return self.error(404, 'Not found')
@@ -80,6 +109,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.valid_host() or self.headers.get('Origin') != self.expected_origin():
             return self.error(403, 'Same-origin requests required')
+        if not self.authorize():
+            return
         if self.path != '/api/identify':
             return self.error(404, 'Not found')
         if self.headers.get('Transfer-Encoding'):
@@ -93,9 +124,7 @@ class Handler(BaseHTTPRequestHandler):
         mime = self.headers.get('Content-Type', '')
         if mime not in ('image/jpeg', 'image/png', 'image/webp'):
             return self.error(415, 'Choose JPEG, PNG or WebP')
-        key = self.headers.get('X-API-Key', '').strip()
-        if not key or len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key):
-            return self.error(400, 'Enter a valid API key')
+        key = self.server.api_key
         self.connection.settimeout(15)
         try:
             photo = self.rfile.read(length)
@@ -104,6 +133,15 @@ class Handler(BaseHTTPRequestHandler):
             valid = (mime == 'image/jpeg' and photo.startswith(b'\xff\xd8\xff')) or (mime == 'image/png' and photo.startswith(b'\x89PNG\r\n\x1a\n')) or (mime == 'image/webp' and photo.startswith(b'RIFF') and photo[8:12] == b'WEBP')
             if not valid:
                 return self.error(400, 'Image contents do not match its format')
+            # Shared, bounded development scan budget; rejected/failed upstream
+            # calls still count. No automatic retry, even on timeout.
+            with self.server.scan_lock:
+                now = time.monotonic()
+                while self.server.scan_times and now - self.server.scan_times[0] >= 3600:
+                    self.server.scan_times.popleft()
+                if len(self.server.scan_times) >= 10:
+                    return self.error(429, 'Hourly limit reached (10 attempts). Try again later.')
+                self.server.scan_times.append(now)
             status, body = self.server.forward(key, photo, mime)
             # Parse before redaction so JSON-escaped key echoes are removed too.
             try:
@@ -161,6 +199,10 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     server = BoundedServer((bind, port), Handler)
     server.public_origin = public_origin
     server.forward = forward_request
+    server.api_key = os.environ.get('TCGAPI_KEY', '').strip()
+    server.app_password = os.environ.get('POKESIFT_PASSWORD', '')
+    server.scan_times = deque()
+    server.scan_lock = threading.Lock()
     return server
 
 
