@@ -61,7 +61,7 @@ function load() {
     storageWarning('Saved collection could not be opened. Existing storage has been left untouched. New cards stay in memory; export them before leaving.');
   }
 }
-const cardOf = e => e.result?.data?.candidates?.[0];
+const cardOf = e => e.catalogMatch?.card || e.result?.data?.candidates?.[0];
 const readOf = e => e.result?.data?.read || {};
 function identityOf(e) {
   const card = cardOf(e) || {}, read = readOf(e);
@@ -159,7 +159,7 @@ function render() {
   $('no-results').hidden = entries.length === 0 || shown.length !== 0;
   // Preserve keyboard focus when background results rebuild the grid/tray.
   const focus = document.activeElement?.dataset?.entry;
-  const focusHost = document.activeElement?.parentElement?.id;
+  const focusHost = document.activeElement?.closest('#card-grid,#result-tray')?.id;
   const grid = $('card-grid'); grid.replaceChildren();
   for (const e of shown) {
     const button = element('button','card-tile'); button.dataset.entry = e.id; button.setAttribute('aria-label', `${titleOf(e)}, ${valueLabel(e) || statusOf(e)}`);
@@ -169,7 +169,8 @@ function render() {
     const value = element('span','card-price',valueLabel(e));
     bottom.append(value,element('span','card-number',identityOf(e).number || '')); button.append(bottom);
     if (priceBasis(e)) button.append(element('small','price-basis',priceBasis(e)));
-    button.addEventListener('click',() => openDetail(e.id)); grid.append(button);
+    button.addEventListener('click',() => openDetail(e.id));
+    if(e.catalogMatch){const wrapper=element('div','catalog-tile');wrapper.append(button,catalogLink(e));grid.append(wrapper);}else grid.append(button);
   }
   const recent = entries.filter(e => sessionIds.has(e.id));
   $('session-count').textContent = recent.length;
@@ -183,10 +184,11 @@ function render() {
     if (price && Number(price.market_price) > 0) {
       button.append(element('strong','tray-value',priceText(price)),element('small','',priceBasis(e) || (fxFailed || fx?.stale ? 'AUD · cached rate' : 'Est. market value')));
     } else { button.append(element('small','',valueLabel(e) || statusOf(e))); }
-    button.addEventListener('click',() => openDetail(e.id)); tray.append(button);
+    button.addEventListener('click',() => openDetail(e.id));
+    if(e.catalogMatch){const wrapper=element('div','catalog-tray-card');wrapper.append(button,catalogLink(e));tray.append(wrapper);}else tray.append(button);
   }
   tray.scrollLeft = scroll;
-  if (focus && focusHost) [...($(focusHost)?.children || [])].find(node => node.dataset.entry === focus)?.focus({preventScroll:true});
+  if (focus && focusHost) [...($(focusHost)?.querySelectorAll('[data-entry]') || [])].find(node => node.dataset.entry === focus)?.focus({preventScroll:true});
   if ($('detail-view').open && focusedId) renderDetail();
   const latest = entries.find(e => e.id === $('latest-find').dataset.entry);
   if (latest && !$('latest-find').hidden) { const p = mainPrice(latest); $('latest-price').textContent = valueLabel(latest); $('latest-printing').textContent = p?.printing || identityOf(latest).number || statusOf(latest); $('latest-currency').textContent = p ? [priceBasis(latest),fxLabel()].filter(Boolean).join(' · ') : 'Tap below for details'; }
@@ -196,12 +198,12 @@ function renderDetail() {
   const card = cardOf(e), payload = e.result?.data;
   $('detail-photo').src = showCapturedPhoto ? e.thumbnail : e.canonicalImage || e.thumbnail;
   $('toggle-photo').hidden = !e.canonicalImage; $('toggle-photo').textContent = showCapturedPhoto ? 'View catalog image' : 'View your photo'; $('detail-photo').alt = titleOf(e);
-  $('detail-image-note').textContent = e.canonicalImage && !showCapturedPhoto ? 'Catalog image · TCGPlayer' : e.status === 'matched' ? 'Your photo' : 'Your photo · no verified catalog image';
+  $('detail-image-note').textContent = e.canonicalImage && !showCapturedPhoto ? `Catalog image · ${e.catalogMatch ? 'PikaQian' : 'TCGPlayer'}` : e.status === 'matched' ? 'Your photo' : 'Your photo · no verified catalog image';
   $('detail-badge').textContent = statusOf(e);
   $('detail-title').textContent = titleOf(e);
   $('detail-set').textContent = identityOf(e).set || 'YOUR CAPTURE';
   $('detail-meta').textContent = [identityOf(e).number,card?.rarity,card?.suggested_printing || readOf(e).finish,readOf(e).stamp,languageOf(e)].filter(Boolean).join(' · ');
-  const message = e.status === 'unsupported' ? 'This printing is outside the current pricing catalog. Your photo and the details read from it are saved. Its value is unknown; we haven’t substituted a price from another language.' : e.message || payload?.message || (busyStates.has(e.status) ? 'Your result will appear here. Feel free to keep adding cards.' : e.status !== 'matched' ? 'This identification is not confirmed. Review the candidates below before using a price.' : '');
+  const message = e.status === 'unsupported' ? 'This printing is outside the current pricing catalog. Your photo and the details read from it are saved. Its value is unknown; we haven’t substituted a price from another language.' : e.message || (e.catalogMatch ? '' : payload?.message) || (busyStates.has(e.status) ? 'Your result will appear here. Feel free to keep adding cards.' : e.status !== 'matched' ? 'This identification is not confirmed. Review the candidates below before using a price.' : '');
   $('detail-message').textContent = message; $('detail-message').hidden = !message;
   const prices = $('detail-prices'); prices.replaceChildren();
   const rows = e.status === 'matched' && Array.isArray(card?.prices) ? card.prices : [];
@@ -229,9 +231,10 @@ function renderDetail() {
     prices.append(row);
   }
   $('valuation-note').hidden = !rows.length;
+  renderEnrichment(e);
   $('detail-warnings').replaceChildren();
   for (const warning of Array.isArray(payload?.warnings) ? payload.warnings : []) $('detail-warnings').append(element('p','notice',String(warning)));
-  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
+  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
   $('raw-details').hidden = busyStates.has(e.status);
   $('remove-card').disabled = busyStates.has(e.status);
 }
@@ -291,6 +294,8 @@ function showLatestFind(e) {
   const price = mainPrice(e);
   $('latest-photo').src = e.canonicalImage || e.thumbnail;
   $('latest-name').textContent = titleOf(e);
+  $('latest-source').hidden=!e.catalogMatch;
+  if(e.catalogMatch)$('latest-source').href='https://pikaqian.com/cards/'+encodeURIComponent(e.catalogMatch.card.provider_id);
   $('latest-heading').textContent = e.status === 'matched' ? 'JUST FOUND' : 'SAVED FROM PHOTO';
   $('latest-printing').textContent = price?.printing || identityOf(e).number || statusOf(e);
   $('latest-price').textContent = valueLabel(e);
@@ -306,12 +311,14 @@ function pump() {
   }
 }
 async function cacheCanonicalImage(e) {
-  const id = cardOf(e)?.tcgplayer_id;
-  // Only confirmed matches get a canonical image, never a misleading candidate.
-  if (e.status !== 'matched' || !/^[1-9][0-9]{0,9}$/.test(String(id || ''))) return;
+  const card = cardOf(e), id = card?.tcgplayer_id;
+  if (e.status !== 'matched') return;
+  const chinese = e.catalogMatch?.card?.provider_id;
+  if (!chinese && !/^[1-9][0-9]{0,9}$/.test(String(id || ''))) return;
+  const url = chinese ? '/api/pikaqian-image?id='+encodeURIComponent(chinese) : '/api/card-image?id='+encodeURIComponent(id);
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(),20000);
   try {
-    const response = await fetch('/api/card-image?id='+encodeURIComponent(id),{credentials:'same-origin',signal:controller.signal});
+    const response = await fetch(url,{credentials:'same-origin',signal:controller.signal});
     if (!response.ok) return;
     const {thumbnail} = await preparePhoto(await response.blob());
     if (!entries.some(item => item.id === e.id)) return;
@@ -335,11 +342,83 @@ async function runJob({id,blob}) {
     e.result = normalizeResult(result); e.currencyAssumed = Boolean(e.result.data.candidates?.some(c => c.prices?.some(p => p.currency_assumed))); e.status = result.data.status;
     showLatestFind(e);
     cacheCanonicalImage(e);
+    if (canEnrich(e)) enrichCard(e);
   } catch(error) {
     e.status = error instanceof TypeError ? 'interrupted' : 'error';
     e.message = error.name === 'AbortError' ? 'This scan timed out. It may still have used a credit. Check your provider balance before scanning again.' : error instanceof TypeError ? 'Connection interrupted. A scan may have been used. No retry was made.' : error.message;
   } finally { clearTimeout(timeout); save(); render(); }
 }
+const enriching = new Set();
+function canEnrich(e) {
+  const read = readOf(e);
+  return Boolean((e.catalogMatch || ['unsupported','not_found','ambiguous'].includes(e.status)) && read.name && /^\d{1,4}(?:\/\d{1,4})?$/.test(read.number || '') && (!read.game || read.game === 'pokemon'));
+}
+function applyCatalogMatch(e, candidate, confirmedBy) {
+  e.catalogMatch = {card:candidate.card,confirmedBy,confirmedAt:new Date().toISOString()};
+  e.status = 'matched'; e.message = ''; e.currencyAssumed = false; delete e.selectedPriceKey;
+  if(candidate.previewImage)e.canonicalImage=candidate.previewImage;else delete e.canonicalImage;
+  e.enrichment.status = 'matched';
+  save(); render(); showLatestFind(e); if(!e.canonicalImage)cacheCanonicalImage(e);
+}
+async function enrichCard(e) {
+  if (enriching.has(e.id)) return;
+  enriching.add(e.id); render();
+  const controller = new AbortController(), timeout = setTimeout(()=>controller.abort(),45000);
+  try {
+    const response = await fetch('/api/enrich',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({read:readOf(e)}),credentials:'same-origin',signal:controller.signal});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error?.message || 'Chinese catalog lookup unavailable.');
+    if (!Array.isArray(result.candidates) || !['matched','review','not_found'].includes(result.status)) throw new Error('Chinese catalog returned an unexpected response.');
+    if (!entries.some(item=>item.id===e.id)) return;
+    e.enrichment = {...result,checkedAt:new Date().toISOString()};
+    e.providerObservations = [...(e.providerObservations || []),...result.candidates.map(c=>c.observation)];
+    const previous = result.candidates.find(c=>c.card.provider_id===e.catalogMatch?.card.provider_id);
+    if (previous) {
+      e.catalogMatch.card = previous.card; e.currencyAssumed=false; e.enrichment.status='matched';
+      cacheCanonicalImage(e);
+    } else if (result.status === 'matched' && result.candidates.length === 1) applyCatalogMatch(e,result.candidates[0],'catalog_fields');
+    else if(result.status==='review')result.candidates.forEach(candidate=>previewCatalogCandidate(e,candidate));
+  } catch(error) {
+    e.enrichment = {...e.enrichment,status:'unavailable',message:error.name==='AbortError'?'Chinese catalog lookup timed out. Your card is saved.':error.message};
+  } finally {clearTimeout(timeout);enriching.delete(e.id);save();render();}
+}
+async function previewCatalogCandidate(e,candidate) {
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);
+  try {
+    const response=await fetch('/api/pikaqian-image?id='+encodeURIComponent(candidate.card.provider_id),{credentials:'same-origin',signal:controller.signal});
+    if(!response.ok)return;
+    const {thumbnail}=await preparePhoto(await response.blob());
+    if(!entries.includes(e) || !e.enrichment?.candidates?.includes(candidate))return;
+    candidate.previewImage=thumbnail;save();
+    if(focusedId===e.id && $('detail-view').open)renderEnrichment(e);
+  }catch{ /* A missing preview never confirms a match or changes the user's card. */ }
+  finally{clearTimeout(timeout);}
+}
+function catalogLink(e) {
+  const link=element('a','catalog-source','Data from PikaQian ↗');
+  link.href='https://pikaqian.com/cards/'+encodeURIComponent(e.catalogMatch.card.provider_id);link.target='_blank';link.rel='noopener noreferrer';return link;
+}
+function renderEnrichment(e) {
+  const button=$('check-catalog'), state=e.enrichment;
+  button.hidden=!canEnrich(e);button.disabled=enriching.has(e.id);
+  button.textContent=enriching.has(e.id)?'Checking Chinese catalog…':e.catalogMatch?'Refresh Chinese card details':'Check Chinese catalog';
+  const pricing=e.catalogMatch?.card?.pricing_status;
+  const priceMessage={plan_required:'Value unknown · PikaQian API pricing requires the Hobby plan or above.',no_sales:'Value unknown · no recorded raw-card price at PikaQian.',unavailable:'PikaQian pricing is temporarily unavailable.'}[pricing];
+  $('catalog-status').textContent=enriching.has(e.id)?'Looking up saved details. No photo scan is used.':state?.status==='review'?'Possible Chinese printing found. Check the set, number and stamp before choosing.':state?.status==='not_found'?'No matching Chinese printing found in the accessible catalog.':state?.status==='unavailable'?state.message:priceMessage || '';
+  const source=$('catalog-source');source.hidden=!e.catalogMatch;
+  if(e.catalogMatch)source.href='https://pikaqian.com/cards/'+encodeURIComponent(e.catalogMatch.card.provider_id);
+  const candidates=$('catalog-candidates');candidates.replaceChildren();
+  if(state?.status!=='review')return;
+  for(const candidate of state.candidates || []) {
+    const card=candidate.card,box=element('div','catalog-candidate');
+    if(/^data:image\/(jpeg|png|webp);base64,/.test(candidate.previewImage || '')){const image=element('img','catalog-preview');image.src=candidate.previewImage;image.alt='Possible '+card.name+' printing — not yet confirmed';box.append(image);}
+    box.append(element('strong','',card.name),element('p','',[card.set?.name,card.set?.id,card.number,card.suggested_printing,'Simplified Chinese'].filter(Boolean).join(' · ')));
+    const link=element('a','catalog-source','View card at PikaQian ↗');link.href='https://pikaqian.com/cards/'+encodeURIComponent(card.provider_id);link.target='_blank';link.rel='noopener noreferrer';box.append(link);
+    const choose=element('button','light-button','This is my printing');
+    choose.onclick=()=>applyCatalogMatch(e,candidate,'user');box.append(choose);candidates.append(box);
+  }
+}
+$('check-catalog').onclick=()=>{const e=entries.find(e=>e.id===focusedId);if(e)enrichCard(e);};
 async function enableCamera() {
   if (!navigator.mediaDevices?.getUserMedia) { $('camera-help').textContent = 'Live camera is unavailable in this browser. Choose photos from your library instead.'; return; }
   const generation = ++cameraGeneration;

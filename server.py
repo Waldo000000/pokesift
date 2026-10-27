@@ -1,5 +1,6 @@
 """PokéSift development service; public deployments require an HTTPS reverse proxy."""
 import base64
+from pikaqian import PikaQian, ProviderError
 import io
 from http.cookies import SimpleCookie, CookieError
 from auth import mint_token, verify_token, LIFETIMES
@@ -226,6 +227,17 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send(200, json.dumps({**self.server.fx_cache, 'stale': True}).encode())
                     return self.error(503, 'AUD exchange rates are temporarily unavailable')
                 return self.send(200, json.dumps(rates).encode())
+        if target.path == '/api/pikaqian-image':
+            query = parse_qs(target.query)
+            if set(query) != {'id'} or len(query['id']) != 1:
+                return self.error(400, 'Invalid card ID')
+            try:
+                body, mime = self.server.pikaqian.image(query['id'][0])
+            except ValueError:
+                return self.error(400, 'Invalid card ID')
+            except Exception:
+                return self.error(502, 'Catalog image unavailable')
+            return self.send(200, body, mime)
         if target.path == '/api/card-image':
             query = parse_qs(target.query)
             product_id = query.get('id', [''])[0]
@@ -249,6 +261,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.create_invite()
         if self.path == '/api/logout':
             return self.send(200, b'{"signedOut":true}', cookie=self.session_cookie(clear=True))
+        if self.path == '/api/enrich':
+            try:
+                data = self.read_auth_json()
+                result = self.server.pikaqian.enrich(data.get('read'))
+            except (ValueError, AttributeError, UnicodeError):
+                return self.error(400, 'A Pokémon name and collector number are needed for catalog lookup.')
+            except ProviderError as error:
+                message = {'not_configured': 'Chinese catalog access is not configured.',
+                    'rate_limited': 'Chinese catalog lookup limit reached. Try again later.'}.get(error.code,
+                    'Chinese catalog is temporarily unavailable. Your scan is saved.')
+                return self.error(503, message)
+            except Exception:
+                return self.error(502, 'Chinese catalog is temporarily unavailable. Your scan is saved.')
+            return self.send(200, json.dumps(result).encode())
         if self.path != '/api/identify':
             return self.error(404, 'Not found')
         if self.headers.get('Transfer-Encoding'):
@@ -342,6 +368,7 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     server.fx_cache = None
     server.fx_cached_at = 0
     server.fx_lock = threading.Lock()
+    server.pikaqian = PikaQian(os.environ.get('PIKAQIAN_API_KEY', '').strip())
     server.api_key = os.environ.get('TCGAPI_KEY', '').strip()
     server.app_password = os.environ.get('POKESIFT_PASSWORD', '')
     server.auth_lock = threading.Lock()

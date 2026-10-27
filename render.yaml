@@ -13,5 +13,7 @@ services:
         value: 3.12.14
       - key: TCGAPI_KEY
         sync: false
+      - key: PIKAQIAN_API_KEY
+        sync: false
       - key: POKESIFT_PASSWORD
         sync: false

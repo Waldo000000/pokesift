@@ -7,3 +7,9 @@ body:not([data-auth="signed-in"]) #collection-view,body:not([data-auth="signed-i
 
 .price-basis{display:block;margin-top:5px;font-size:9px;color:var(--muted)}.valuation-choice-group{margin:20px 0}.valuation-choice-group label{display:block;font-size:12px;font-weight:650;margin-bottom:8px}.valuation-choice-group select{font:inherit;font-size:14px;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:12px;width:100%;min-width:0}.valuation-choice-group select:focus-visible{outline:3px solid #97ab54;outline-offset:3px}
 @media(max-width:640px){.camera-stage{width:calc(100% - 40px);min-height:150px;max-height:min(43dvh,calc(100dvh - 450px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))}}
+
+.catalog-source{display:block;font-size:10px;color:#66884c;margin-top:8px}.catalog-tile{min-width:0}.catalog-tile>.card-tile{width:100%}.catalog-tray-card{min-width:90px;width:90px}.catalog-tray-card .catalog-source{font-size:8px;color:#b4ce99}.catalog-candidate{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0}.catalog-candidate p{font-size:11px;line-height:1.6}.catalog-candidate button{margin-top:12px}.catalog-candidate strong{font-size:14px}
+
+.latest-find .catalog-source{pointer-events:auto;font-size:7px;margin-top:3px}
+
+.catalog-preview{display:block;width:150px;max-height:210px;object-fit:contain;margin:0 auto 12px;border-radius:8px}

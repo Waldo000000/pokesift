@@ -231,6 +231,37 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert.equal(await cr.evaluate(()=>{const e=structuredClone(entries[0]);e.result.data.candidates[0].prices=[{market_price:10,currency:'USD'},{market_price:2,currency:'USD'}];return mainPrice(e).market_price;}),2);
   assert.equal(valuationScans,1);
   await choiceRestore.close();await valuations.close();
+  // Chinese fallback: OCR correction needs confirmation; price-plan and no-sales differ.
+  const chinese=await newContext(), cp=await chinese.newPage();
+  const chineseRead={game:'pokemon',name:'Delibird',number:'011/058',set:'CSWhSC',language:'other',finish:'non_holo',stamp:'Dragonite silhouette',kind:'raw'};
+  const chineseCandidate={card:{name:'Delibird',local_name:'信使鸟',number:'011',set:{id:'csvh5c',name:'Happy Set 5'},suggested_printing:'dragonite-stamp',provider:'pikaqian',provider_id:'db119de9-d875-467c-b962-4bdbdd7dc7ee',prices:[],pricing_status:'plan_required'},exact:false,observation:{provider:'pikaqian',response:{card:{name:'Delibird',prices:null}}}};
+  let chineseScans=0,enrichmentCalls=0,priced=false;
+  await cp.route('**/api/identify',r=>{chineseScans++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({data:{status:'unsupported',read:chineseRead}})});});
+  await cp.route('**/api/enrich',r=>{enrichmentCalls++;assert.deepEqual(r.request().postDataJSON(),{read:chineseRead});const candidate=structuredClone(chineseCandidate);if(priced){candidate.card.pricing_status='available';candidate.card.prices=[{printing:'dragonite-stamp',market_price:18.5,original_price_cents:1850,currency:'USD',currency_assumed:false,source:'PikaQian'}];}return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({provider:'pikaqian',status:'review',candidates:[candidate]})});});
+  await cp.route('**/api/pikaqian-image?*',r=>r.fulfill({status:200,contentType:'image/png',body:photo.buffer}));
+  await cp.goto(`http://127.0.0.1:${port}`);await cp.locator('#open-camera').click();await cp.locator('#photo-input').setInputFiles(photo);
+  await waitFor(()=>enrichmentCalls===1);await cp.locator('#camera-done').click();await cp.locator('.card-tile').click();
+  await waitFor(()=>cp.locator('#catalog-candidates button').count().then(n=>n===1));
+  assert.match(await cp.locator('#catalog-status').textContent(),/Check the set/);
+  assert.match(await cp.locator('#detail-prices').textContent(),/Unknown/);
+  await cp.locator('#catalog-candidates button').click();
+  await waitFor(()=>cp.locator('#detail-image-note').textContent().then(t=>t.includes('PikaQian')));
+  assert.match(await cp.locator('#catalog-status').textContent(),/Hobby plan/);
+  assert.equal(await cp.locator('#catalog-source').getAttribute('href'),'https://pikaqian.com/cards/'+chineseCandidate.card.provider_id);
+  assert.equal(await cp.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries[0].result.data.status,key),'unsupported');
+  priced=true;await cp.locator('#check-catalog').click();
+  await waitFor(()=>cp.locator('#detail-prices').textContent().then(t=>t.includes('A$37.00')));
+  await cp.locator('#close-detail').click();assert.match(await cp.locator('#card-grid').textContent(),/A\$37.00/);
+  assert.equal(await cp.locator('#card-grid .catalog-source').count(),1);
+  await cp.reload();await waitFor(()=>cp.locator('#card-grid').textContent().then(t=>t.includes('A$37.00')));
+  assert.equal(chineseScans,1);assert.equal(enrichmentCalls,2,'Reload must not automatically spend catalog requests');
+  const chineseSaved=await cp.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries[0],key);
+  assert(chineseSaved.canonicalImage);assert.equal(chineseSaved.catalogMatch.confirmedBy,'user');
+  assert.equal(chineseSaved.catalogMatch.card.prices[0].original_price_cents,1850);
+  assert(chineseSaved.providerObservations.some(o=>o.provider==='tcgapi'));assert(chineseSaved.providerObservations.some(o=>o.provider==='pikaqian'));
+  const chineseDownload=cp.waitForEvent('download');await cp.locator('#export').click();const chineseChunks=[];for await(const c of await (await chineseDownload).createReadStream())chineseChunks.push(c);
+  const chineseBackup=JSON.parse(Buffer.concat(chineseChunks));assert.deepEqual(chineseBackup.entries[0].catalogMatch,chineseSaved.catalogMatch);
+  await chinese.close();
   console.log('PASS: queued uploads, concurrency=2, out-of-order results, uninterrupted capture, browse during scans, details, persistence, filters, camera capture/release, interrupted reload, storage quota handling. Zero real scans.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exit(1)});

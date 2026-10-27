@@ -103,6 +103,24 @@ class ServerTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_enrichment_requires_session_origin_and_valid_details(self):
+        from unittest.mock import Mock
+        self.server.pikaqian.enrich = Mock(return_value={'status': 'not_found', 'candidates': []})
+        body = {'read': {'game': 'pokemon', 'name': 'Delibird', 'number': '011/058'}}
+        self.assertEqual(self.auth_request('/api/enrich', body)[0], 401)
+        self.assertEqual(self.auth_request('/api/enrich', body, self.cookie, 'https://evil.example')[0], 403)
+        self.server.pikaqian.enrich.assert_not_called()
+        self.assertEqual(self.auth_request('/api/enrich', body, self.cookie)[0], 200)
+        self.server.pikaqian.enrich.assert_called_once_with(body['read'])
+        self.assertEqual(self.calls, [], 'Metadata fallback must not invoke a paid scan')
+
+    def test_enrichment_errors_never_echo_provider_secrets(self):
+        from unittest.mock import Mock
+        self.server.pikaqian.enrich = Mock(side_effect=RuntimeError('secret-provider-key'))
+        status, body, _ = self.auth_request('/api/enrich', {'read': {}}, self.cookie)
+        self.assertEqual(status, 502)
+        self.assertNotIn('secret-provider-key', json.dumps(body))
+
     def test_pairing_cookie_and_invite_creation(self):
         invite = mint_token(PASSWORD, 'invite', 'http://' + self.host)
         status, result, headers = self.auth_request('/api/pair', {'invite': invite})
