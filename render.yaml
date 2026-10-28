@@ -4,11 +4,14 @@ services:
     runtime: python
     plan: free
     branch: main
-    buildCommand: pip install -r requirements.txt && python -m unittest discover -s tests -v
+    buildCommand: pip install -r requirements.txt && POKESIFT_CLOUD_ENABLED=0 python -m unittest discover -s tests -v
     startCommand: python server.py
     healthCheckPath: /healthz
     autoDeployTrigger: commit
     envVars:
+      # Enable only after the Neon/Google/storage smoke tests in docs/cloud-deployment.md.
+      - key: POKESIFT_CLOUD_ENABLED
+        value: "0"
       - key: PYTHON_VERSION
         value: 3.12.14
       - key: TCGAPI_KEY

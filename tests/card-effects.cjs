@@ -25,7 +25,7 @@ assert.equal(F.cleanAppearance({version:2,profile:'cosmos',region:'print',layout
 const artScope={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'dist/concepts/art.js'),'utf8'),artScope);
 const image=artScope.window.CONCEPT_ART['card-6'],base='http://127.0.0.1:8797',key='pokesift.collection.v1';
 const entry={id:'foil-fixture',status:'matched',createdAt:'2026-10-27T00:00:00Z',canonicalImage:image,thumbnail:image,result:{data:{status:'matched',read:{game:'pokemon',name:'Charizard',language:'en',finish:'holofoil'},candidates:[{name:'Charizard',number:'4/130',set:{name:'Base Set 2'},prices:[{printing:'Normal',currency:'USD',market_price:1},{printing:'Holofoil',currency:'USD',market_price:5}]}]}}};
-(async()=>{let browser;const server=spawn('python3',['server.py'],{cwd:root,env:{...process.env,PORT:'8797',POKESIFT_PASSWORD:'fixture-only',PUBLIC_ORIGIN:'',RENDER_EXTERNAL_URL:''},stdio:'ignore'});
+(async()=>{let browser;const server=spawn('python3',['server.py'],{cwd:root,env:{...process.env,POKESIFT_CLOUD_ENABLED:'0',PORT:'8797',POKESIFT_PASSWORD:'fixture-only',PUBLIC_ORIGIN:'',RENDER_EXTERNAL_URL:''},stdio:'ignore'});
 try{
   for(let i=0;i<60;i++){try{if((await fetch(base+'/healthz')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
   browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||(fs.existsSync('/usr/bin/chromium')?'/usr/bin/chromium':undefined),args:['--no-sandbox']});

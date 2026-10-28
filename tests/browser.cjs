@@ -11,7 +11,7 @@ const key='pokesift.collection.v1';
 const waitFor = async fn => {for(let i=0;i<50;i++){if(await fn())return;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out');};
 const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'254/198',tcgplayer_id:12345,rarity:'Hyper Rare',set:{name:'Scarlet & Violet'},suggested_printing:'Holofoil',prices:[{printing:'Holofoil',market_price:5.40,last_updated_at:'2026-10-26T04:22:13Z'}]}]},meta:{scans_remaining:22}});
 (async()=>{
- const server=spawn('python3',['server.py'],{cwd:root,env:{...process.env,PORT:String(port),TCGAPI_KEY:'not-a-real-key',POKESIFT_PASSWORD:password,PUBLIC_ORIGIN:'',RENDER_EXTERNAL_URL:''},stdio:'ignore'});
+ const server=spawn('python3',['server.py'],{cwd:root,env:{...process.env,POKESIFT_CLOUD_ENABLED:'0',PORT:String(port),TCGAPI_KEY:'not-a-real-key',POKESIFT_PASSWORD:password,PUBLIC_ORIGIN:'',RENDER_EXTERNAL_URL:''},stdio:'ignore'});
  let browser;
  try{
   await waitFor(()=>fetch(`http://127.0.0.1:${port}/healthz`).then(r=>r.ok).catch(()=>false));

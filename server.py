@@ -1,6 +1,8 @@
 """PokéSift development service; public deployments require an HTTPS reverse proxy."""
 import base64
 from pikaqian import PikaQian, ProviderError
+from cloud_http import CloudHTTP
+from cloud_store import CloudError
 from pokemon_art import ArtworkCache
 import io
 from http.cookies import SimpleCookie, CookieError
@@ -101,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def send(self, status, body, mime='application/json', cookie=None, cache='no-store'):
+    def send(self, status, body, mime='application/json', cookie=None, cache='no-store', extra_headers=None):
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(body)))
@@ -112,7 +114,10 @@ class Handler(BaseHTTPRequestHandler):
         ancestors = "'self'" if urlsplit(self.path).path == '/collection-room.html' else "'none'"
         self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob: data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors " + ancestors)
         if cookie:
-            self.send_header('Set-Cookie', cookie)
+            for item in cookie if isinstance(cookie,list) else [cookie]:
+                self.send_header('Set-Cookie', item)
+        for name,value in (extra_headers or {}).items():
+            self.send_header(name,value)
         if self.server.public_origin:
             self.send_header('Strict-Transport-Security', 'max-age=31536000')
         self.end_headers()
@@ -148,6 +153,10 @@ class Handler(BaseHTTPRequestHandler):
         return f'{self.cookie_name()}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={0 if clear else LIFETIMES["session"]}{secure}'
 
     def authorize(self):
+        if self.server.cloud:
+            try:return self.server.cloud.authorize(self)
+            except Exception:
+                self.error(503, 'Account service temporarily unavailable.');return False
         if not self.configured():
             return False
         try:
@@ -207,6 +216,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, b'{"status":"ok"}')
         if not self.valid_host():
             return self.error(403, 'Unrecognized host')
+        if self.path == '/runtime.js':
+            return self.send(200, ('window.POKESIFT_RUNTIME='+json.dumps({'cloud':bool(self.server.cloud)})+';').encode(), 'text/javascript')
+        if self.server.cloud and self.server.cloud.dispatch(self):
+            return
         files = {'/': ('index.html', 'text/html; charset=utf-8'), '/index.html': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/auth.js': ('auth.js', 'text/javascript'), '/photo-store.js': ('photo-store.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
         files.update({f'/{name}': (name, mime) for name, mime in [('species-index.js','text/javascript'),('collection-views.js','text/javascript'),('collection-room.js','text/javascript'),('collection-room.css','text/css'),('collection-room.html','text/html; charset=utf-8')]})
         # Public, static design samples. These use demo data and never call providers.
@@ -216,6 +229,7 @@ class Handler(BaseHTTPRequestHandler):
         files['/card-details.js'] = ('card-details.js', 'text/javascript')
         files.update({f'/motion.{ext}': (f'motion.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/card-effects.{ext}': (f'card-effects.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
+        files.update({f'/{name}': (name,mime) for name,mime in [('account.js','text/javascript'),('cloud-sync.js','text/javascript'),('cloud.css','text/css'),('privacy.html','text/html; charset=utf-8')]})
         if self.path in files:
             name, mime = files[self.path]
             return self.send(200, (ROOT / name).read_bytes(), mime)
@@ -274,6 +288,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.valid_host() or self.headers.get('Origin') != self.expected_origin():
             return self.error(403, 'Same-origin requests required')
+        if self.server.cloud and self.server.cloud.dispatch(self):
+            return
         if self.path == '/api/pair':
             return self.pairing()
         if not self.authorize():
@@ -372,6 +388,8 @@ class Handler(BaseHTTPRequestHandler):
             if 300 <= status < 400:
                 return self.error(502, 'Provider redirect refused. No retry was made.')
             self.send(status, body)
+        except CloudError as error:
+            self.send(error.status,json.dumps({'error':{'message':error.message,**error.extra}}).encode())
         except Exception:
             self.error(502, 'Provider request failed or timed out. A scan may have been used. Check your provider dashboard before retrying. No retry was made.')
 
@@ -424,6 +442,10 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     server.auth_attempts = deque()
     server.scan_times = OrderedDict()
     server.scan_lock = threading.Lock()
+    server.cloud = CloudHTTP.from_environment(public_origin)
+    if server.cloud:
+        server.forward = server.cloud.wrap_scan(server.forward)
+        server.pikaqian.transport = server.cloud.wrap_lookup(server.pikaqian.transport)
     return server
 
 

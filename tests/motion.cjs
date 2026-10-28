@@ -1,7 +1,7 @@
 const {chromium}=require('playwright'),{spawn}=require('node:child_process');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8799';
-(async()=>{let browser;const server=spawn('python3',['server.py'],{cwd:root,env:{...process.env,PORT:'8799',POKESIFT_PASSWORD:'motion-fixture',PUBLIC_ORIGIN:'',RENDER_EXTERNAL_URL:''},stdio:'ignore'});
+(async()=>{let browser;const server=spawn('python3',['server.py'],{cwd:root,env:{...process.env,POKESIFT_CLOUD_ENABLED:'0',PORT:'8799',POKESIFT_PASSWORD:'motion-fixture',PUBLIC_ORIGIN:'',RENDER_EXTERNAL_URL:''},stdio:'ignore'});
 try{
   for(let i=0;i<50;i++){try{if((await fetch(base+'/healthz')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
   browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||(fs.existsSync('/usr/bin/chromium')?'/usr/bin/chromium':undefined),args:['--no-sandbox']});

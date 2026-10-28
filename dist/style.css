@@ -29,3 +29,5 @@ body:not([data-auth="signed-in"]) #collection-view,body:not([data-auth="signed-i
 .detail-dialog .tilt-hint{font-size:10px;color:#f3f4dfbd;margin:15px 0 0}.detail-dialog .image-note,.detail-dialog #toggle-photo{color:#e4e8d5}
 .detail-dialog .detail-copy{background:#f4f3edf0;backdrop-filter:blur(12px);padding:24px;border-radius:20px;max-width:530px;margin:0 auto}.detail-dialog .detail-close{position:sticky;float:right;top:0;margin-top:-25px;z-index:4}
 @media(max-width:640px){.detail-dialog .detail-copy{padding:22px}.detail-dialog .detail-image{padding-top:0}.detail-dialog .detail-image .foil-perspective{width:min(290px,64vw)}}
+
+.privacy-page{max-width:720px;margin:40px auto;padding:24px;line-height:1.75}.privacy-page h1{font-size:38px}

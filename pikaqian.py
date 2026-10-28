@@ -130,6 +130,8 @@ class PikaQian:
             try:
                 status, body, mime = self.transport('https://api.pikaqian.com/v1/' + path, self.key)
                 data = {} if status in (401, 403, 429) else json.loads(body)
+            except ProviderError:
+                raise
             except Exception:
                 self.record_failure(now)
                 raise ProviderError('unavailable') from None

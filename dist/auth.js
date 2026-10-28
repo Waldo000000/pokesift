@@ -1,5 +1,6 @@
 'use strict';
 (() => {
+  if(window.POKESIFT_RUNTIME?.cloud)return;
   const $ = id => document.getElementById(id);
   // Strip the fragment before any asynchronous work; never store invites locally.
   let invite = new URLSearchParams(location.hash.slice(1)).get('invite');

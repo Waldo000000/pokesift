@@ -27,6 +27,7 @@ function notify(message) {
 function storageWarning(message) { $('storage-warning').textContent = message; $('storage-warning').hidden = false; }
 function save() {
   if (readOnlyStorage) {unsavedCollection=true;return false;}
+  if(window.POKESIFT_RUNTIME?.cloud){const saved=PokeSiftCloud.save({version:1,entries,collectionViews});unsavedCollection=!saved;return saved;}
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({version: 1, entries, collectionViews}));
     $('storage-warning').hidden = true;
@@ -342,7 +343,7 @@ function addFiles(files, capture=null) {
           delete e.result;delete e.catalogMatch;delete e.enrichment;delete e.priceCheck;delete e.selectedPriceKey;delete e.canonicalImage;
         } else e={id:crypto.randomUUID(),createdAt:new Date().toISOString(),status:'queued',thumbnail};
         const persisted = await PokeSiftPhotos.put(e.id,blob);
-        e.scanPhoto = {id:e.id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted};
+        e.scanPhoto = {id:e.id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted,...(window.POKESIFT_RUNTIME?.cloud?{sha256:await PokeSiftPhotos.digest(blob)}:{})};
         e.capture=capture ? structuredClone(capture) : {source:'photo_library'};
         if(!replacingId)entries.unshift(e);
         else {retakeId=null;renderRetakeMode();}
@@ -396,10 +397,10 @@ async function cacheCanonicalImage(e) {
 }
 async function runJob({id,blob}) {
   const e = entries.find(entry => entry.id === id); if (!e) return;
-  e.status = 'scanning'; save(); render();
+  e.status = 'scanning';const requestId=crypto.randomUUID();e.scanRequestId=requestId;save(); render();
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(),60000);
   try {
-    const response = await fetch('/api/identify',{method:'POST',headers:{'Content-Type':blob.type},body:blob,credentials:'same-origin',redirect:'error',referrerPolicy:'no-referrer',signal:controller.signal});
+    const response = await fetch('/api/identify',{method:'POST',headers:{'Content-Type':blob.type,'X-Request-ID':requestId},body:blob,credentials:'same-origin',redirect:'error',referrerPolicy:'no-referrer',signal:controller.signal});
     let result;
     try { result = await response.json(); } catch { throw new Error('The server returned an unreadable response. A scan may have been used. No retry was made.'); }
     if (!response.ok) throw new Error(result?.error?.message || `The server returned HTTP ${response.status}. No retry was made.`);
@@ -441,7 +442,7 @@ async function enrichCard(e) {
   enriching.add(e.id); render();
   const controller = new AbortController(), timeout = setTimeout(()=>controller.abort(),45000);
   try {
-    const response = await fetch('/api/enrich',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({read:readOf(e)}),credentials:'same-origin',signal:controller.signal});
+    const response = await fetch('/api/enrich',{method:'POST',headers:{'Content-Type':'application/json','X-Request-ID':crypto.randomUUID()},body:JSON.stringify({read:readOf(e)}),credentials:'same-origin',signal:controller.signal});
     const result = await response.json();
     if (!response.ok) throw new Error(result?.error?.message || 'Chinese catalog lookup unavailable.');
     if (!Array.isArray(result.candidates) || !['matched','review','not_found'].includes(result.status)) throw new Error('Chinese catalog returned an unexpected response.');
@@ -507,7 +508,7 @@ async function updateMissingPrices() {
       const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),catalog?45000:15000);
       let shouldStop=false;
       try {
-        const response=await fetch(catalog?'/api/enrich':'/api/pikaqian-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(catalog?{read:readOf(targets()[0])}:{cardId}),credentials:'same-origin',signal:controller.signal});
+        const response=await fetch(catalog?'/api/enrich':'/api/pikaqian-prices',{method:'POST',headers:{'Content-Type':'application/json','X-Request-ID':crypto.randomUUID()},body:JSON.stringify(catalog?{read:readOf(targets()[0])}:{cardId}),credentials:'same-origin',signal:controller.signal});
         let result;try{result=await response.json();}catch{throw new Error('Unreadable pricing response.');}
         if(!response.ok) {
           const error=new Error(result?.error?.message || 'Price lookup failed.');
@@ -743,7 +744,7 @@ $('export').onclick = async() => {
       if(source)scanImages[e.id]=await PokeSiftPhotos.dataURL(source);
       else if(e.scanPhoto)missingScanImages.push(e.id);
     }
-    const backup={format:'pokesift-backup',backupVersion:4,version:1,exportedAt:new Date().toISOString(),entries:snapshot,scanImages,missingScanImages,exchangeRates:fx,collectionViews:structuredClone(collectionViews)};
+    const backup={format:'pokesift-backup',backupVersion:4,version:1,exportedAt:new Date().toISOString(),entries:snapshot,scanImages,missingScanImages,exchangeRates:fx,collectionViews:structuredClone(collectionViews),...(window.POKESIFT_RUNTIME?.cloud?{cloudRecovery:PokeSiftCloud.recovery()}:{})};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pokesift-collection.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     if(missingScanImages.length)notify(`${missingScanImages.length} scan photos were unavailable. Their saved thumbnails and card details are included.`);
@@ -810,14 +811,15 @@ $('backup-file').onchange = async event => {
       fx=backup.exchangeRates; fxFailed=true;
       try { localStorage.setItem(FX_KEY,JSON.stringify(fx)); } catch {}
     }
+    if(window.POKESIFT_RUNTIME?.cloud&&backup.cloudRecovery)await PokeSiftCloud.importRecovery(backup.cloudRecovery);
     const saved=save(); render();
     notify(saved ? `${added.length} cards and ${missingMedia.length} scan photos restored. No scans used.` : 'Cards restored in memory. Export them before leaving; browser storage is full.');
   } catch(error) { notify(error instanceof SyntaxError ? 'That file is not a valid JSON backup. Nothing was imported.' : error.message); }
 };
-window.addEventListener('beforeunload',event => { if (active || jobs.length || pendingPreparation || priceBatch.running || unsavedCollection || PokeSiftPhotos.hasTransient()) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload',event => { if (active || jobs.length || pendingPreparation || priceBatch.running || unsavedCollection || PokeSiftPhotos.hasTransient() || (window.POKESIFT_RUNTIME?.cloud&&!PokeSiftCloud.durable())) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('pagehide',stopCamera);
 window.addEventListener('storage',event => {
-  if (event.key === STORAGE_KEY) { stopPriceBatch(); readOnlyStorage = true; storageWarning('Your collection changed in another tab. Export any new cards here, then reload to see that tab’s saved collection. This tab will not overwrite it.');window.PokeSiftViews?.refresh(); }
+  if (event.key === STORAGE_KEY && !window.POKESIFT_RUNTIME?.cloud) { stopPriceBatch(); readOnlyStorage = true; storageWarning('Your collection changed in another tab. Export any new cards here, then reload to see that tab’s saved collection. This tab will not overwrite it.');window.PokeSiftViews?.refresh(); }
 });
 let initialized = false;
 function initializeCollection() {
@@ -825,7 +827,7 @@ function initializeCollection() {
   initialized = true;
   try { const stored = JSON.parse(localStorage.getItem(FX_KEY)); if (validFx(stored)) { fx = stored; fxFailed = true; } } catch {}
   $('fx-refresh').onclick = refreshFx;
-  load(); render(); refreshFx();
+  if(window.POKESIFT_RUNTIME?.cloud){const cached=PokeSiftCloud.snapshot();entries=cached.entries;collectionViews=cached.collectionViews;document.body.dataset.cloud='true';}else load(); render(); refreshFx();
   setInterval(() => { if (document.body.dataset.auth === 'signed-in') refreshFx(); },6*3600*1000);
   document.addEventListener('visibilitychange',() => { if (!document.hidden && document.body.dataset.auth === 'signed-in' && (!fx || Date.now()-Date.parse(fx.fetchedAt || 0)>6*3600*1000)) refreshFx(); });
 }

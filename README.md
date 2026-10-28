@@ -4,6 +4,21 @@ A camera-first Pokémon collection app: scan cards in succession, watch their va
 
 **Development app:** https://pokesift-dev.onrender.com/ — access requires a short-lived pairing invite from an existing device or the server administrator.
 
+## Cloud account rollout
+
+Google accounts, private Neon photo storage, cross-device sync, seven-day friend
+invitations and durable scan budgets are implemented behind
+`POKESIFT_CLOUD_ENABLED=1`. The flag defaults to **off**: current access and storage
+continue to use the QR/browser-local mode described below. Live Neon/Google/storage
+verification is still required before activation. See the [exact deployment,
+migration, limits and rollback guide](docs/cloud-deployment.md).
+
+In cloud mode, each person gets a private collection; an invitation grants scans
+without sharing anyone else's cards. The migration keeps original device data,
+uploads saved photos and retakes without rescanning, and supports second-device
+backups, offline edits, conflict review and 30-day card recovery. Global paid
+provider budgets default to zero until the owner deliberately sets them.
+
 ## Using the app
 
 1. Scan a pairing QR to remember your device for 30 days. A paired device can use **Add another device** to create another ten-minute invite.
@@ -83,7 +98,7 @@ Each completed lookup saves immediately. Failed requests do not clear existing p
 
 ## Storage, backups and future migration
 
-There is no collection database or cloud synchronization. Data stays in the current browser:
+With cloud mode **off**, data stays in the current browser. With cloud mode enabled, account-scoped IndexedDB, PostgreSQL and private object storage handle synchronization; see the [cloud guide](docs/cloud-deployment.md). The legacy device stores remain intact:
 
 | Browser store | Contents |
 | --- | --- |
@@ -99,12 +114,13 @@ Saved identifiers, raw server-redacted provider observations and archived upload
 
 Browser storage has finite capacity. Failures remain visible, with unsaved data retained in memory for backup before leaving. Concurrent-tab edits are guarded against silent overwrites. Clearing browser data removes the collection; local records and backup files are not encrypted against someone with access to the browser profile or file.
 
-## Deployment and device access
+## Deployment and device access (legacy mode)
 
 The app uses a Python server and static HTML/CSS/JavaScript, with no frontend build step. [`render.yaml`](render.yaml) defines the free Render service, health check, Python version, build command and automatic deployment from `main`. Connect the GitHub repository to Render and provide the server-side environment variables:
 
 | Variable | Purpose |
 | --- | --- |
+| `POKESIFT_CLOUD_ENABLED` | Defaults to `0`. Enable only after the [cloud setup and verification](docs/cloud-deployment.md). |
 | `TCGAPI_KEY` | Required primary provider key. |
 | `POKESIFT_PASSWORD` | Required signing secret, at least 16 characters and different from the API key. Generate it with a password manager; users sign in through invites, not a password prompt. |
 | `PIKAQIAN_API_KEY` | Enables Chinese catalog and pricing requests; optional for primary scanning. Pricing requires the appropriate provider plan. |
@@ -171,6 +187,9 @@ npm run check
 npm run test:browser
 npm run test:concepts
 npm run test:collection
+npm run test:foil
+npm run test:motion
+npm run test:cloud
 ```
 
 Tests use fake credentials and mocked upstream responses. The browser suite starts a temporary local server and covers capture queues, mobile layout, result arrivals, valuation choices, currencies, Chinese matching, bulk pricing, storage failures and backup/restore, older-card enrichment and retake history. Separate suites cover the physical prototypes and production collection views, species corrections, saved arrangements and complete backup/restore without paid requests. [GitHub Actions](.github/workflows/checks.yml) runs the Python, JavaScript syntax and browser checks.
@@ -182,7 +201,10 @@ PikaQian pricing is tested against schema-based fixtures. The live key was on Fr
 | Path | Responsibility |
 | --- | --- |
 | [`server.py`](server.py) | HTTP server, authenticated provider forwarding, images, rates and request limits. |
-| [`auth.py`](auth.py) | Purpose-separated, origin-bound invite and session signatures. |
+| [`auth.py`](auth.py) | Legacy purpose-separated, origin-bound invite and session signatures. |
+| [`cloud_http.py`](cloud_http.py), [`cloud_store.py`](cloud_store.py) | Opt-in account routes, ownership, revisions, invitations, durable budgets and migration. |
+| [`neon_auth.py`](neon_auth.py), [`cloud_media.py`](cloud_media.py) | Neon Google sign-in adapter and private S3-compatible media. |
+| [`dist/cloud-sync.js`](dist/cloud-sync.js), [`dist/account.js`](dist/account.js) | Durable account cache, sync/conflicts, migration and account UI. |
 | [`pikaqian.py`](pikaqian.py) | Chinese catalog matching, pricing, cache and provider failure controls. |
 | [`dist/`](dist/) | Browser UI, capture queue, valuations, collection and local media storage. |
 | [`dist/collection-views.js`](dist/collection-views.js) | Collection/species mapping and persistence bridge to the isolated browsing frame. |
@@ -194,9 +216,11 @@ PikaQian pricing is tested against schema-based fixtures. The live key was on Fr
 
 ## Security and operational limits
 
+The following process-local limits describe legacy QR mode. Cloud mode additionally uses durable account ownership, revocable sessions, private photo storage and shared provider budgets; its [limits and retention](docs/cloud-deployment.md#limits-and-sync-behaviour) survive restarts.
+
 Provider keys stay server-side. Protected endpoints require a signed device session; POSTs also require the correct origin. The backend validates the deployment host, uses fixed provider/CDN hosts, verifies TLS, bounds request/response sizes and follows no redirects or automatic retries. Provider key echoes are redacted before responses reach the browser. There are no application request logs or analytics; keep hosting request-body/header logging disabled too.
 
-The backend does not persist collection photos or provider responses. TCG API receives the scan image; PikaQian receives identification metadata or saved provider IDs. Provider retention policies remain separate from the app's storage behaviour.
+In legacy mode, the backend does not persist collection photos or provider responses. Cloud mode deliberately persists private account photos, collection records and redacted request replay results. TCG API receives the scan image; PikaQian receives identification metadata or saved provider IDs. Provider retention policies remain separate from the app's storage behaviour.
 
 | Provider protection | Current limit per server process |
 | --- | --- |

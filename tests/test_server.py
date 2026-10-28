@@ -22,7 +22,7 @@ class ServerTests(unittest.TestCase):
             if isinstance(self.reply, Exception):
                 raise self.reply
             return self.reply
-        with patch.dict('os.environ', {'TCGAPI_KEY': 'test-key', 'POKESIFT_PASSWORD': PASSWORD}):
+        with patch.dict('os.environ', {'POKESIFT_CLOUD_ENABLED':'0', 'TCGAPI_KEY': 'test-key', 'POKESIFT_PASSWORD': PASSWORD}):
             self.server = make_server(0, forward)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
