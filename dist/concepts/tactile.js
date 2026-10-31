@@ -142,21 +142,24 @@
   // plastic between their columns folds; the final pose matches the resting leaf.
   function startTurn(direction,corner='bottom') {
     if(turn||drag)return false;const target=page+direction*pageStep();if(target<0||target>=layout.slots.length/9)return false;
+    // A single-page binder stays hinged at the left spine in both directions.
+    // Going back brings the previous page in by reversing the forward fold.
+    const reverseTurn=!spreadMedia.matches&&direction===-1,foldDirection=reverseTurn?1:direction;
     const spread=$('binder-spread'),source=direction===1?spread.lastElementChild:spread.firstElementChild,rect=source.getBoundingClientRect(),bounds=book.getBoundingClientRect(),gap=spreadMedia.matches?parseFloat(getComputedStyle(spread).gap):0;
     const sheet=document.createElement('div');sheet.className='turning-sheet curved-sheet';sheet.setAttribute('aria-hidden','true');sheet.inert=true;Object.assign(sheet.style,{left:rect.left-bounds.left+'px',top:rect.top-bounds.top+'px',width:rect.width+'px',height:rect.height+'px'});
-    const front=source.cloneNode(true),back=leaf(direction===1?target:target+pageStep()-1,{side:direction===1?'left':'right',corners:false});
+    const front=reverseTurn?leaf(target,{corners:false}):source.cloneNode(true),back=reverseTurn?source.cloneNode(true):leaf(direction===1?target:target+pageStep()-1,{side:direction===1?'left':'right',corners:false});
     for(const face of [front,back]){face.querySelectorAll('button').forEach(b=>b.tabIndex=-1);face.querySelectorAll('.page-corner').forEach(b=>b.remove());Object.assign(face.style,{width:rect.width+'px',height:rect.height+'px'});}
     const pockets=[...source.querySelectorAll('.physical-pocket')].slice(0,3).map(n=>n.getBoundingClientRect());
     const cuts=[0,(pockets[0].right+pockets[1].left)/2-rect.left,(pockets[1].right+pockets[2].left)/2-rect.left,rect.width],strips=[];
-    for(let i=0;i<3;i++){const column=direction===1?i:2-i,start=cuts[column],w=cuts[column+1]-start,strip=document.createElement('div');strip.className='page-strip';strip.dataset.column=column;strip.foldWidth=w;Object.assign(strip.style,{width:w+.25+'px',height:rect.height+'px',transformOrigin:direction===1?'left center':'right center'});
+    for(let i=0;i<3;i++){const column=foldDirection===1?i:2-i,start=cuts[column],w=cuts[column+1]-start,strip=document.createElement('div');strip.className='page-strip';strip.dataset.column=column;strip.foldWidth=w;Object.assign(strip.style,{width:w+.25+'px',height:rect.height+'px',transformOrigin:foldDirection===1?'left center':'right center'});
       for(const [face,reverse] of [[front,false],[back,true]]){const mask=document.createElement('div');mask.className='strip-face'+(reverse?' strip-back':'');const content=face.cloneNode(true);content.style.left=-(reverse?rect.width-start-w:start)+'px';mask.append(content);strip.append(mask);}sheet.append(strip);strips.push(strip);
     }
-    if(spreadMedia.matches){if(direction===1)spread.lastElementChild.replaceWith(leaf(target+1,{side:'right',corners:false}));else spread.firstElementChild.replaceWith(leaf(target,{side:'left',corners:false}));}else spread.replaceChildren(leaf(target,{corners:false}));
-    book.append(sheet);book.classList.add('page-turning');turn={direction,corner,target,sheet,strips,gap,width:rect.width,progress:0,frame:0};paintTurn(0);return true;
+    if(spreadMedia.matches){if(direction===1)spread.lastElementChild.replaceWith(leaf(target+1,{side:'right',corners:false}));else spread.firstElementChild.replaceWith(leaf(target,{side:'left',corners:false}));}else if(!reverseTurn)spread.replaceChildren(leaf(target,{corners:false}));
+    book.append(sheet);book.classList.add('page-turning');turn={direction,foldDirection,reverseTurn,corner,target,sheet,strips,gap,width:rect.width,progress:0,frame:0};paintTurn(0);return true;
   }
-  function paintTurn(progress){if(!turn)return;const t=turn;t.progress=progress;const wave=Math.sin(progress*Math.PI);let x=t.direction===1?0:t.width,z=0;
-    t.strips.forEach((strip,i)=>{const w=strip.foldWidth,angle=Math.PI*progress+wave*.6*(i-1),dy=0,left=t.direction===1?x:x-w;
-      strip.style.left=left+'px';strip.style.transform=`translate3d(${-t.direction*t.gap*progress}px,${dy}px,${z}px) rotateY(${-t.direction*angle*180/Math.PI}deg)`;strip.style.setProperty('--strip-shade',Math.abs(Math.sin(angle))*.22);x+=t.direction*Math.cos(angle)*w;z+=Math.sin(angle)*w;
+  function paintTurn(progress){if(!turn)return;const t=turn;t.progress=progress;const fold=t.reverseTurn?1-progress:progress,direction=t.foldDirection,wave=Math.sin(fold*Math.PI);let x=direction===1?0:t.width,z=0;
+    t.strips.forEach((strip,i)=>{const w=strip.foldWidth,angle=Math.PI*fold+wave*.6*(i-1),dy=0,left=direction===1?x:x-w;
+      strip.style.left=left+'px';strip.style.transform=`translate3d(${-direction*t.gap*fold}px,${dy}px,${z}px) rotateY(${-direction*angle*180/Math.PI}deg)`;strip.style.setProperty('--strip-shade',Math.abs(Math.sin(angle))*.22);x+=direction*Math.cos(angle)*w;z+=Math.sin(angle)*w;
     });book.dataset.turnProgress=progress.toFixed(3);
   }
   function finishTurn(commit){if(!turn)return;cancelAnimationFrame(turn.frame);if(commit)page=turn.target;turn.sheet.remove();turn=null;book.classList.remove('page-turning');delete book.dataset.turnProgress;renderBook();}

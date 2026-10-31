@@ -33,6 +33,32 @@ await f.locator('#unclassified-summary').click();await f.locator('#unclassified-
 const download=p.waitForEvent('download');await p.locator('#export').click();const dl=await download;const stream=await dl.createReadStream(),chunks=[];for await(const chunk of stream)chunks.push(chunk);const backup=JSON.parse(Buffer.concat(chunks));assert.equal(backup.backupVersion,4);assert.equal(backup.collectionViews.slots[0],entry);assert(backup.collectionViews.positions[25]);assert.equal(paidCalls,0);
 const c2=await context(false),restored=await c2.newPage();restored.on('pageerror',e=>errors.push(e.message));restored.on('dialog',d=>d.accept());await restored.goto(base);await restored.locator('#import-backup').waitFor();await restored.locator('#backup-file').setInputFiles({name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))});await restored.locator('.card-tile').first().waitFor();const restoredState=await restored.evaluate(k=>JSON.parse(localStorage.getItem(k)),key);assert.equal(restoredState.collectionViews.slots[0],entry);assert.deepEqual(restoredState.collectionViews.positions[25],stored.collectionViews.positions[25]);await restored.locator('[data-collection-view="binder"]').click();await restored.frameLocator('#collection-room').locator('[data-slot="0"] .sleeved-card').waitFor();await restored.reload();await restored.locator('[data-collection-view="binder"]').click();await restored.frameLocator('#collection-room').locator('[data-slot="0"] .sleeved-card').waitFor();
 await p.setViewportSize({width:390,height:844});f=await view('binder');await f.locator('#binder-spread .binder-leaf').first().waitFor();assert.equal(await f.locator('#binder-spread>.binder-leaf').count(),1);assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.screenshot({path:'/tmp/pokesift-live-collection-mobile.png',fullPage:true});
+// A phone shows the right-hand leaf only: previous pages must unfold from the
+// left spine, reversing a forward turn rather than hinging off the right edge.
+await f.locator('#next-page').click();await f.locator('#binder-spread[data-start-page="1"]').waitFor();
+for(const corner of ['top','bottom']){
+  await f.locator(`.corner-${corner}.corner-left:not(:disabled)`).scrollIntoViewIfNeeded();
+  const leafBounds=await f.locator('#binder-spread>.binder-leaf').boundingBox();
+  const cornerBounds=await f.locator(`.corner-${corner}.corner-left:not(:disabled)`).boundingBox();
+  const x=cornerBounds.x+cornerBounds.width/2,y=cornerBounds.y+cornerBounds.height/2;
+  await p.mouse.move(x,y);await p.mouse.down();
+  const incoming=f.locator('.turning-sheet .strip-face:not(.strip-back) .binder-leaf');
+  assert.equal(await incoming.first().getAttribute('data-page'),'0','Backward turns must show the incoming previous page');
+  const bounds=()=>f.locator('.page-strip').evaluateAll(nodes=>{const rs=nodes.map(n=>n.getBoundingClientRect());return {left:Math.min(...rs.map(r=>r.left)),right:Math.max(...rs.map(r=>r.right))};});
+  // Geometry inside the iframe is local; use the resting leaf in that frame.
+  const resting=await f.locator('#binder-spread>.binder-leaf').evaluate(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right};});
+  assert((await bounds()).right<=resting.left+2,'The previous page must begin to the left of the visible leaf');
+  assert.equal(await f.locator('#binder-spread>.binder-leaf').getAttribute('data-page'),'1','The current page must remain underneath the incoming page');
+  await p.mouse.move(x+leafBounds.width*2,y,{steps:12});
+  const landed=await bounds();assert(Math.abs(landed.left-resting.left)<2&&Math.abs(landed.right-resting.right)<2,'The previous page must unfold onto the visible leaf');
+  await p.mouse.up();await f.locator('#binder-spread[data-start-page="0"]').waitFor();
+  await f.locator('#next-page').click();await f.locator('#binder-spread[data-start-page="1"]').waitFor();
+}
+// Releasing a short backward pull returns the incoming page to the left.
+const cancelCorner=await f.locator('.corner-top.corner-left:not(:disabled)').boundingBox();
+await p.mouse.move(cancelCorner.x+cancelCorner.width/2,cancelCorner.y+cancelCorner.height/2);await p.mouse.down();
+await p.mouse.move(cancelCorner.x+cancelCorner.width/2+6,cancelCorner.y+cancelCorner.height/2);await p.mouse.up();
+await f.locator('.turning-sheet').waitFor({state:'detached'});assert.equal(await f.locator('#binder-spread').getAttribute('data-start-page'),'1');
 assert.equal(await p.evaluate(()=>Object.keys(localStorage).filter(k=>k.startsWith('pokesift.prototype')).length),0);
 await p.locator('[data-collection-view="grid"]').click();
 await p.evaluate(()=>{entries=entries.filter(e=>e.id!=='unknown');save();render();});
