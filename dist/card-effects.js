@@ -6,6 +6,7 @@
     ['cosmos','Cosmos circles','cosmos','print'],['sheen','Diagonal sheen','sheen','artwork'],
     ['tinsel','Horizontal tinsel','horizontal','artwork'],['line','Vertical line holo','vertical','artwork'],
     ['water','Water-web holo','water','artwork'],['reverse','Reverse mirror foil','mirror','reverse'],
+    ['trainer-reverse','Trainer reverse tiles / chevrons','trainer-tiles','reverse'],
     ['sparkle','All-over sparkle','stars','full'],['confetti','Pixel / confetti','confetti','artwork'],
     ['sequin','Sequin circles','sequin','artwork'],['cracked-ice','Cracked ice','ice','artwork'],
     ['crosshatch','Crosshatch / radiant grid','crosshatch','reverse'],['textured','Etched full-art texture','etched','full'],
@@ -16,6 +17,16 @@
   const regions={auto:'Use finish default',print:'Mapped artwork background',artwork:'Whole artwork window',reverse:'Card body, excluding artwork',full:'Whole card',subject:'Mapped Pokémon silhouette',border:'Border only','art-border':'Artwork and border',none:'No foil'};
   const layouts={classic:{label:'Classic Pokémon layout',art:[26,40,187,130]},modern:{label:'Modern Pokémon layout',art:[18,46,204,127]},trainer:{label:'Standard Trainer layout',art:[18,42,204,142]},'full-art':{label:'Full-art layout',art:null},energy:{label:'Energy layout',art:null}};
   const norm=s=>String(s||'').normalize('NFKC').toLowerCase().replace(/[_–-]+/g,' ').replace(/\s+/g,' ').trim();
+  const setKey=s=>norm(s).replace(/^swsh\s*\d*(?:\.\d+)?\s*:?\s+|^sword\s*(?:&|and)\s*shield\s*:?\s+/,'');
+  const swordShieldSets=new Set(['sword & shield','sword and shield','rebel clash','darkness ablaze','champion’s path',"champion's path",'vivid voltage','shining fates','battle styles','chilling reign','evolving skies','fusion strike','brilliant stars','astral radiance','pokemon go','pokémon go','lost origin','silver tempest','crown zenith']);
+  function classification(data){
+    // The compact identify response may omit Trainer classification. This
+    // reviewed identity supplies it for Bird Keeper, never for another print.
+    const birdKeeper=norm(data.name)==='bird keeper'&&setKey(data.set)==='darkness ablaze'&&/^0*159(?:\s*\/\s*0*189)?$/.test(String(data.number||''));
+    const type=norm(data.supertype),supertype=/^(?:trainer|supporter|item|stadium|pokemon tool|pokémon tool)(?:\b|$)/.test(type)||birdKeeper?'trainer':/^(?:basic |special )?energy$/.test(type)?'energy':type;
+    const set=norm(data.set),layout=supertype==='energy'?'energy':supertype==='trainer'?'trainer':/^(base set(?: 2)?|base[12]|jungle|fossil|team rocket|gym heroes|gym challenge|neo (?:genesis|discovery|revelation|destiny)|legendary collection)$/.test(set)?'classic':'modern';
+    return {supertype,layout,swordShield:swordShieldSets.has(setKey(set))};
+  }
   const registry=[
     {id:'base2-4-holo',sets:['base set 2','base2'],number:4,total:130,name:'charizard',profile:'cosmos'},
     {id:'base1-2-holo',sets:['base set','base1'],number:2,total:102,name:'blastoise',profile:'starlight'}
@@ -39,6 +50,12 @@
     const finish=['','unknown','unspecified'].includes(supplied)?suggested:supplied;
     if(/^(non ?holo(?: ?foil)?|normal|regular|matte|standard)$/.test(finish))return {...base,source:'metadata',note:'Non-holo finish. No coloured foil.'};
     const holo=/^(holo(?: ?foil)?|holographic(?: ?foil)?|foil)$/.test(finish);
+    const reverse=/^reverse(?: ?holo(?: ?foil)?| ?holographic(?: ?foil)?| ?foil)?$/.test(finish);
+    const {supertype,layout,swordShield}=classification(data);
+    if(reverse){
+      const tiles=supertype==='trainer'&&swordShield&&['en','eng','english'].includes(norm(data.language))&&!data.stamp;
+      return {...base,printing:null,profile:tiles?'trainer-reverse':'reverse',region:supertype==='energy'?'full':'reverse',layout,source:tiles?'card-family':'metadata',note:tiles?'Saved reverse-holo finish · Trainer tile / chevron pattern inferred from this English Sword & Shield card. Pattern and foil area are approximate; the API does not specify the texture.':'Saved reverse-holo finish · approximate mirror reflection over the '+(supertype==='energy'?'whole Energy card':'card body, excluding the artwork')+'. The exact pattern and foil area are not known; adjust them if needed.'};
+    }
     if(printing&&(!finish||holo))return {...base,profile:printing.profile,region:'print',source:'printing',note:'Printing-specific, hand-drawn mask · approximate '+profiles[printing.profile].label.toLowerCase()+'.'};
     // Exact area and regional variants cannot be recovered from rarity alone.
     // Full-art explicit finish labels are sufficient for a broad visual treatment.
@@ -53,8 +70,6 @@
       // description alone is not foil evidence, and rarity alone never enables it.
       const doubleRare=rarity==='double rare'||(/\bdouble rare (?:pok[eé]mon )?ex\b/.test(notes)&&! /\b(?:not|no|uncertain|possibly|maybe)\b[^.]*\bdouble rare\b/.test(notes));
       if(doubleRare)return {...base,profile:'sparkle',region:'full',layout:'modern',source:'metadata',note:'Saved holo finish and double-rare Pokémon ex identification · approximate whole-card sparkle. No exact foil mask is available.'};
-      const supertype=norm(data.supertype),set=norm(data.set);
-      const layout=supertype==='energy'?'energy':supertype==='trainer'?'trainer':/^(base set(?: 2)?|base[12]|jungle|fossil|team rocket|gym heroes|gym challenge|neo (?:genesis|discovery|revelation|destiny)|legendary collection)$/.test(set)?'classic':'modern';
       return {...base,profile:supertype==='energy'?'full-sheen':'sheen',region:supertype==='energy'?'full':'artwork',layout,source:'metadata',note:'Saved holo finish · diagonal reflection over an approximate '+(supertype==='energy'?'whole-card':'artwork-window')+' area. The exact foil mask is not known; adjust the area if needed.'};
     }
     if(finish)return {...base,note:'Saved finish: '+String(data.finish).slice(0,100)+'. Choose a visual finish and area below; the exact foil map is not known.'};
@@ -127,6 +142,14 @@
       }
       if(kind==='ice')for(let y=0;y<330;y+=24)for(let x=-24;x<240;x+=28){ink(x,y);ctx.beginPath();const offset=(y/24)%2*14;ctx.moveTo(x+offset,y);ctx.lineTo(x+offset+28,y+7);ctx.lineTo(x+offset+9,y+29);ctx.closePath();ctx.globalAlpha=.4;ctx.fill();ctx.globalAlpha=1;ctx.lineWidth=.4;ctx.stroke();}
       if(kind==='pokeball'||kind==='masterball')for(let y=12;y<330;y+=28)for(let x=12;x<240;x+=28){ink(x,y);ctx.lineWidth=.75;ctx.beginPath();ctx.arc(x,y,8,0,Math.PI*2);ctx.moveTo(x-8,y);ctx.lineTo(x-2,y);ctx.moveTo(x+2,y);ctx.lineTo(x+8,y);ctx.moveTo(x+2,y);ctx.arc(x,y,2,0,Math.PI*2);ctx.stroke();if(kind==='masterball'){ctx.font='bold 6px sans-serif';ctx.textAlign='center';ctx.fillText('M',x,y-3);}}
+      if(kind==='trainer-tiles')for(let y=-12;y<342;y+=20)for(let x=-12;x<252;x+=24){
+        // Original, bounded tile approximation: rising chevrons around small
+        // ball motifs. Mirror highlights move with tilt, without rainbow ink.
+        const glint=.12+.7*Math.exp(-((x/240-.5-nx*.5)**2+(y/330-.5+ny*.5)**2)*8);
+        ctx.strokeStyle=`rgba(245,250,248,${glint})`;ctx.lineWidth=.65;
+        ctx.beginPath();ctx.moveTo(x-12,y+6);ctx.lineTo(x,y);ctx.lineTo(x+12,y+6);ctx.moveTo(x-12,y+9);ctx.lineTo(x,y+3);ctx.lineTo(x+12,y+9);ctx.stroke();
+        const cy=y+13;ctx.beginPath();ctx.arc(x,cy,3.1,0,Math.PI*2);ctx.moveTo(x-3.1,cy);ctx.lineTo(x-1,cy);ctx.moveTo(x+1,cy);ctx.lineTo(x+3.1,cy);ctx.moveTo(x+1,cy);ctx.arc(x,cy,1,0,Math.PI*2);ctx.stroke();
+      }
     }
     function paint(){
       host.style.setProperty('--card-rx',rx+'deg');host.style.setProperty('--card-ry',ry+'deg');

@@ -7,7 +7,8 @@ const F=scope.window.PokeSiftFoil;
 const printing={name:'Charizard',set:'Base Set 2',number:'004/130',language:'English',finish:'holofoil',canonical:true};
 assert.equal(F.resolve(printing).profile,'cosmos');
 assert.equal(F.resolve({...printing,finish:'non_holo'}).profile,'matte');
-assert.equal(F.resolve({...printing,finish:'Reverse Holofoil'}).profile,'matte');
+const reverseClassic=F.resolve({...printing,finish:'Reverse Holofoil'});
+assert.equal(reverseClassic.profile,'reverse');assert.equal(reverseClassic.region,'reverse');assert.equal(reverseClassic.printing,null,'Reverse metadata must not reuse the regular holo silhouette');
 for(const changed of [{language:'zh-TW'},{number:'4/102'},{set:'Celebrations'}]){const result=F.resolve({...printing,...changed});assert.equal(result.profile,'sheen');assert.equal(result.region,'artwork');assert.equal(result.printing,null,'Approximate holo must not reuse the English printing-specific mask');}
 assert.equal(F.resolve({...printing,canonical:false}).profile,'matte');
 assert.equal(F.resolve({rarity:'Rare Holo VMAX'}).profile,'matte');
@@ -20,6 +21,21 @@ assert.equal(F.resolve({...dondozo,notes:'Not a double rare Pokémon ex card.'})
 assert.equal(F.resolve({...dondozo,finish:'non_holo'}).profile,'matte','Explicit non-holo overrides notes and suggested printing');
 assert.equal(F.resolve({...dondozo,finish:'',suggestedFinish:''}).profile,'matte','Sleeve/classification notes alone are not finish evidence');
 assert.equal(F.resolve({...dondozo,appearance:{version:1,profile:'matte',region:'auto',layout:'modern'}}).profile,'matte');
+const birdKeeper={name:'Bird Keeper',set:'SWSH03: Darkness Ablaze',number:'159/189',language:'English',finish:'reverse_holo',canonical:true};
+for(const finish of ['reverse_holo','Reverse Holofoil','reverse holo foil','reverse-holographic','reverse foil']){
+  const result=F.resolve({...birdKeeper,finish});assert.equal(result.profile,'trainer-reverse');assert.equal(result.region,'reverse');assert.equal(result.layout,'trainer');assert.equal(result.source,'card-family');assert.match(result.note,/inferred/);
+}
+for(const set of ['Darkness Ablaze','Sword & Shield - Darkness Ablaze','SWSH03: Darkness Ablaze'])assert.equal(F.resolve({...birdKeeper,set}).profile,'trainer-reverse');
+assert.equal(F.resolve({...birdKeeper,finish:'unknown',suggestedFinish:'Reverse Holofoil'}).profile,'trainer-reverse');
+assert.equal(F.resolve({...birdKeeper,finish:'non_holo',suggestedFinish:'Reverse Holofoil'}).profile,'matte');
+assert.equal(F.resolve({...birdKeeper,finish:'',suggestedFinish:''}).profile,'matte','A known printing never proves a physical finish by itself');
+assert.equal(F.resolve({...birdKeeper,appearance:{version:1,profile:'matte',region:'auto',layout:'trainer'}}).profile,'matte');
+assert.equal(F.resolve({...birdKeeper,canonical:false}).profile,'matte');
+for(const changed of [{language:'Japanese'},{set:'Other set'},{number:'160/189'},{stamp:'Prerelease'}])assert.equal(F.resolve({...birdKeeper,...changed}).profile,'reverse','Unknown variants retain a generic reverse treatment, without assuming Trainer tiles');
+const classifiedTrainer={finish:'reverse_holo',supertype:'Trainer - Supporter',set:'SWSH12: Silver Tempest',language:'en'};
+assert.equal(F.resolve(classifiedTrainer).profile,'trainer-reverse');
+assert.equal(F.resolve({...classifiedTrainer,supertype:'Pokemon'}).profile,'reverse');
+assert.equal(F.resolve({finish:'reverse_holo',supertype:'Special Energy'}).region,'full');
 assert.equal(F.cleanAppearance({version:1,profile:'constructor',region:'full',layout:'classic'}),null);
 assert.equal(F.cleanAppearance({version:2,profile:'cosmos',region:'print',layout:'classic'}),null);
 const artScope={window:{}};vm.runInNewContext(fs.readFileSync(path.join(root,'dist/concepts/art.js'),'utf8'),artScope);
@@ -81,5 +97,26 @@ try{
   await page.locator('#visual-finish').selectOption('matte');assert(!(await page.locator('#detail-tilt').evaluate(e=>e.classList.contains('has-foil'))));assert.notDeepEqual(await page.locator('#detail-tilt').screenshot(),autoImage,'Automatic holo must render differently from no foil');
   assert.match(await page.locator('#visual-finish option[value="auto"]').textContent(),/All-over sparkle/);await page.locator('#visual-finish').selectOption('auto');
   assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'sparkle');await page.locator('#close-detail').click();await page.reload();await page.locator('.card-tile').first().click();assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'sparkle','Existing saved entries should work after reload with no rescan');
-  assert.equal(paid,0);assert.deepEqual(errors,[]);console.log('PASS: 20 foil treatments; masks; automatic holo/ex fallback and resolved controls; touch and reduced motion; saved corrections; photo fallback; backup restore; renderer cleanup. No provider calls.');
+  // The saved Bird Keeper response has reverse_holo and no supertype, just
+  // like the compact identify API response. Existing entries update locally.
+  await page.locator('#close-detail').click();await page.waitForFunction(()=>!document.querySelector('#detail-tilt .foil-pattern'));
+  await page.evaluate(()=>{const e=entries[0];delete e.visualFinish;e.result.data.read={game:'pokemon',name:'Bird Keeper',number:'159/189',language:'english',finish:'reverse_holo',stamp:null};e.result.data.candidates[0]={name:'Bird Keeper',set:{name:'SWSH03: Darkness Ablaze'},number:'159/189',rarity:'Uncommon',suggested_printing:'Reverse Holofoil',prices:[{printing:'Normal',currency:'USD',market_price:1},{printing:'Reverse Holofoil',currency:'USD',market_price:2}]};save();render();});
+  const reverseEvidence=await page.evaluate(()=>structuredClone(entries[0].result));
+  await page.locator('.card-tile').first().click();assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'trainer-reverse');assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-region'),'reverse');
+  assert.match(await page.locator('#visual-finish option:checked').textContent(),/Trainer reverse tiles/);assert.equal(await page.locator('#visual-layout').inputValue(),'trainer');assert.match(await page.locator('#visual-status').textContent(),/inferred/);
+  const trainerMask=await page.evaluate(async()=>{const im=new Image();im.src=PokeSiftFoil.maskFor(PokeSiftFoil.resolve(PokeSiftCardDetails.describe(entries[0])));await im.decode();const c=document.createElement('canvas');c.width=480;c.height=660;const ctx=c.getContext('2d');ctx.drawImage(im,0,0);return {art:ctx.getImageData(240,200,1,1).data[3],body:ctx.getImageData(240,500,1,1).data[3],border:ctx.getImageData(10,200,1,1).data[3]};});
+  assert.deepEqual(trainerMask,{art:0,body:255,border:0});
+  const tilePixels=()=>page.locator('#detail-tilt .foil-pattern').evaluate(c=>({url:c.toDataURL(),painted:c.getContext('2d').getImageData(0,0,c.width,c.height).data.some((v,i)=>i%4===3&&v>0)}));
+  const restingTiles=await tilePixels();assert(restingTiles.painted);await page.locator('#detail-tilt').press('ArrowRight');assert.notEqual((await tilePixels()).url,restingTiles.url,'Trainer tiles must reflect a change in light angle');
+  await page.locator('#detail-tilt').press('Home');await page.screenshot({path:'/tmp/pokesift-bird-keeper-reverse.png',fullPage:true});
+  if(!(await page.locator('.foil-settings').evaluate(e=>e.open)))await page.getByText('Card finish & light',{exact:true}).click();
+  await page.locator('#visual-finish').selectOption('matte');assert(!(await page.locator('#detail-tilt').evaluate(e=>e.classList.contains('has-foil'))));await page.locator('#visual-finish').selectOption('auto');
+  await page.locator('#toggle-photo').click();assert(!(await page.locator('#detail-tilt').evaluate(e=>e.classList.contains('has-foil'))));await page.locator('#toggle-photo').click();assert(await page.locator('#detail-tilt').evaluate(e=>e.classList.contains('has-foil')));
+  assert.deepEqual(await page.evaluate(()=>entries[0].result),reverseEvidence);await page.locator('#close-detail').click();await page.reload();await page.locator('.card-tile').first().click();assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'trainer-reverse','Saved reverse entries update without rescanning');
+  await page.locator('#close-detail').click();await page.locator('[data-collection-view="binder"]').click();const binder=page.frameLocator('#collection-room');await binder.locator('[data-card-key="foil-fixture"]').first().click();assert.equal(await binder.locator('.held-foil-card').getAttribute('data-foil-profile'),'trainer-reverse','Binder and collection must use the same automatic finish');await binder.locator('#put-back').click();
+  // New results with documented catalogue custom_attributes use their Trainer
+  // layout too, without adding a new network request just to render the foil.
+  await page.evaluate(()=>{const e=entries[0];e.result.data.read.name='Fixture Supporter';const c=e.result.data.candidates[0];c.name='Fixture Supporter';c.set.name='SWSH12: Silver Tempest';c.custom_attributes={cardType:'Trainer - Supporter'};save();render();});
+  await page.locator('[data-collection-view="grid"]').click();await page.locator('.card-tile').first().click();assert.equal(await page.locator('#detail-tilt').getAttribute('data-foil-profile'),'trainer-reverse');assert.equal(await page.locator('#visual-layout').inputValue(),'trainer');
+  assert.equal(paid,0);assert.deepEqual(errors,[]);console.log('PASS: '+Object.keys(F.profiles).length+' foil treatments; masks; automatic holo/ex and reverse-holo Trainer tiles; metadata and variant guards; collection/binder consistency; touch and reduced motion; saved corrections; photo fallback; backup restore; renderer cleanup. No provider calls.');
 }finally{await browser?.close();server.kill();}})().catch(e=>{console.error(e);process.exit(1)});

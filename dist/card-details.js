@@ -13,7 +13,7 @@
     const c=cardOf(e)||{},read=readOf(e),identity=identityOf(e),selected=chosenPrice(e);
     // The automatic lowest price is NOT evidence of the physical finish.
     const notes=[c.notes,c.note,read.notes,read.note,e.result?.data?.notes,e.result?.data?.note].flat().filter(n=>typeof n==='string').join(' ').slice(0,2000);
-    return {name:identity.name,set:identity.set,number:identity.number,language:languageOf(e),game:read.game||'pokemon',stamp:read.stamp||'',finish:selected?.printing||read.finish||c.suggested_printing||'',suggestedFinish:c.suggested_printing||'',rarity:c.rarity||'',supertype:c.supertype||'',notes,canonical:!!e.canonicalImage,appearance:F.cleanAppearance(e.visualFinish)};
+    return {name:identity.name,set:identity.set,number:identity.number,language:languageOf(e),game:read.game||'pokemon',stamp:read.stamp||'',finish:selected?.printing||read.finish||c.suggested_printing||'',suggestedFinish:c.suggested_printing||'',rarity:c.rarity||'',supertype:c.supertype||c.custom_attributes?.cardType||read.supertype||'',notes,canonical:!!e.canonicalImage,appearance:F.cleanAppearance(e.visualFinish)};
   }
   function render(e){
     const data=describe(e);data.canonical=data.canonical&&!showCapturedPhoto;

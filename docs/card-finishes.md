@@ -27,6 +27,7 @@ use explicitly selected layout templates and are approximations.
 | Line | Sword & Shield artwork; Japanese variants can include the border | Vertical refracting lines |
 | Water web | Sun & Moon-era artwork | Wavy reflective lines |
 | Reverse mirror | Usually body outside artwork; several EX-era exceptions below | Silvery reflection, no mandatory rainbow |
+| Trainer reverse tiles / chevrons | English Sword & Shield-era standard Trainers; approximate body coverage outside artwork | Small ball motifs between rising chevrons, with moving mirror highlights |
 | All-over sparkle | Explicitly selected whole-card treatment | Stars over the whole card |
 | Pixel / confetti | McDonald's and Celebrations examples; coverage is printing-dependent | Blocky foil pieces |
 | Sequin | Some promotional cards | Small circles |
@@ -56,6 +57,9 @@ rectangular template as an exact mask.
 
 Sources:
 
+- [TCG API identification response](https://tcgapi.dev/api/identify/): `read.finish` and `suggested_printing` identify broad finishes. No separate texture or per-pixel foil map is documented. [Card data](https://tcgapi.dev/api/cards/) can include Trainer classification in `custom_attributes.cardType`.
+- [Official Bird Keeper 159/189 card database](https://www.pokemon.com/uk/pokemon-tcg/pokemon-cards/series/swsh3/159/): Darkness Ablaze Trainer-Supporter identity. The compact identify response may omit that classification, so this exact identity has a local fallback; it does not establish a physical finish by itself.
+- [PokéBeach's Sword & Shield reverse-pattern report](https://www.pokebeach.com/2020/01/sword-shield-reverse-holo-pattern-revealed-other-cosmetic-changes): tile-family context. Our Trainer chevrons and ball motifs are an original procedural approximation, not copied physical texture or an API-detected pattern.
 - [Bulbapedia: Holofoil, patterns, coverage and historical exceptions](https://bulbapedia.bulbagarden.net/wiki/Holofoil)
 - [Bulbapedia: Pokémon ex](https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_ex_(TCG)) and [rarity](https://bulbapedia.bulbagarden.net/wiki/Rarity): double-rare ex classification and artwork extending beyond the illustration window; the whole-card sparkle is a visual approximation, not an exact printing map.
 - [Pokémon TCG API card object](https://docs.pokemontcg.io/api-reference/cards/card-object/): card IDs, sets, rarity, images and price variants; no per-pixel foil-mask field documented.
@@ -69,6 +73,20 @@ lowest price as evidence for finish. An explicitly selected price printing can
 provide a finish label, but ambiguous labels still require an area selection.
 
 - Explicit non-holo/normal: no coloured foil.
+- Saved `reverse_holo`, `Reverse Holofoil`, reverse holographic or reverse foil:
+  automatic mirror reflection over an approximate body-outside-artwork template
+  (whole card for Energy). This never reuses a regular holo silhouette. Historical,
+  regional and special-printing exceptions still need a reviewed mask or manual
+  visual correction; the generic treatment does not claim an exact match.
+- English Sword & Shield-era standard Trainers with a saved reverse finish:
+  Trainer layout and a tile / chevron approximation. This requires known set
+  metadata and Trainer classification, or the reviewed Bird Keeper 159/189
+  Darkness Ablaze identity when classification is absent. Other languages,
+  stamps and unidentified families retain the generic reverse treatment. The UI
+  identifies the pattern as inferred from the card family, rather than detected
+  by the API. An explicit non-holo finish and a user's visual setting still win.
+  Rendering an existing saved entry applies the fix without rescanning or
+  changing its observations, valuation, photos or identity.
 - English Base Set 2 Charizard 4/130 holo and Base Set Blastoise 2/102 holo:
   hand-traced, approximate artwork-background masks with Cosmos and Starlight
   respectively. Matching includes set, number, name and language; masks do not

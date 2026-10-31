@@ -246,14 +246,20 @@ Card details now support drag-to-tilt viewing in the collection and binder. Open
 layout, or inspect the mask. Visual choices are saved per entry and included in
 collection backups; they do not change identity or prices and use no scan credits.
 The [card playground](https://pokesift-dev.onrender.com/concepts/card-study.html)
-compares 20 treatments, including matte, classic holo, reverse, full-card sparkle,
+compares 21 treatments, including matte, classic holo, reverse, Trainer tiles,
+full-card sparkle,
 textured, rainbow, gold, cracked ice, and Poké Ball / Master Ball patterns.
 
 Automatic coverage is deliberately conservative. Two printing-specific
 silhouette masks are currently supplied. Saved `holo` / `holofoil` finishes use a
 labelled approximate reflection when no exact map exists; double-rare Pokémon ex
 identification selects whole-card sparkle. Automatic controls show the resolved
-pattern, coverage and layout. Unrecognized finishes remain tilt-only until a
+pattern, coverage and layout. Saved reverse-holo finishes now activate a body
+reflection automatically. English Sword & Shield Trainers use a labelled tile /
+chevron approximation when the saved classification establishes that family;
+Bird Keeper 159/189 in Darkness Ablaze also works with compact API responses
+that omit Trainer classification. Existing entries update without a new scan,
+and manual visual choices remain in place. Unrecognized finishes remain tilt-only until a
 visual choice is made. See [finish research, coverage, exceptions and mask provenance](docs/card-finishes.md)
 for the distinctions and the process for adding precise maps. Run `npm run test:foil`
 for renderer, mask, persistence and no-credit browser checks.
