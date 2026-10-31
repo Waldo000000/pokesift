@@ -395,23 +395,36 @@ class CloudStore:
         row=q('SELECT amount FROM cloud_budgets WHERE name=?',(name,)).fetchone()
         return row['amount'] if row else self.limits[name]
 
-    def reserve_paid(self,owner,request_id,provider,fingerprint):
+    def reserve_paid(self,owner,request_id,provider,fingerprint,retry_of=None):
         identifier(request_id)
+        if retry_of is not None:identifier(retry_of)
         if provider not in {'tcgapi','pikaqian'}:raise CloudError(400,'Unknown provider.')
         with self.db.transaction(True) as q:
             existing=q('SELECT * FROM cloud_paid_requests WHERE owner_id=? AND id=? AND provider=?',(owner,request_id,provider)).fetchone()
             if existing:
                 if existing['fingerprint']!=fingerprint:raise CloudError(409,'Request identifier reused with different content.')
                 if existing['state']=='complete':return (existing['status'],existing['response'].encode())
-                raise CloudError(409,'This request was already submitted. Its outcome is uncertain; no retry was made.',code='request_pending')
+                raise CloudError(409,'This request was already submitted. Its outcome is uncertain; no retry was made.',code='request_pending',requestId=request_id)
             a=q('SELECT * FROM cloud_accounts WHERE id=? AND disabled=0',(owner,)).fetchone()
             if not a:raise CloudError(401,'Sign in again.')
+            retry=None
+            if retry_of is not None:
+                retry=q('SELECT * FROM cloud_paid_requests WHERE owner_id=? AND id=? AND provider=?',(owner,retry_of,provider)).fetchone()
+                if retry and retry['fingerprint']!=fingerprint:raise CloudError(409,'Retry photo differs from the original request.')
+                # Manual retries must not bypass an uncertain submission, even
+                # after the short duplicate-photo cache has expired.
+                pending=q("SELECT id FROM cloud_paid_requests WHERE owner_id=? AND provider=? AND fingerprint=? AND state!='complete' LIMIT 1",(owner,provider,fingerprint)).fetchone()
+                if pending:raise CloudError(409,'The earlier scan has not confirmed its outcome. No new scan was sent. Try again later to recover its result.',code='request_pending',requestId=pending['id'])
+                if retry and 200<=retry['status']<300:
+                    q("INSERT INTO cloud_paid_requests(owner_id,id,provider,fingerprint,state,response,status,created_at) VALUES(?,?,?,?,'complete',?,?,?)",(owner,request_id,provider,fingerprint,retry['response'],retry['status'],self.now()))
+                    return retry['status'],retry['response'].encode()
             if not self._budget(q,'provider_calls_enabled'):raise CloudError(503,'Scanning and catalog lookups are paused by the owner. Your collection is still available.',code='provider_paused')
-            recent=q('SELECT state,status,response FROM cloud_paid_requests WHERE owner_id=? AND provider=? AND fingerprint=? AND created_at>? ORDER BY created_at DESC LIMIT 1',(owner,provider,fingerprint,self.now()-300)).fetchone()
+            recent=q('SELECT id,state,status,response FROM cloud_paid_requests WHERE owner_id=? AND provider=? AND fingerprint=? AND created_at>? ORDER BY created_at DESC LIMIT 1',(owner,provider,fingerprint,self.now()-300)).fetchone()
             if recent:
-                if recent['state']!='complete':raise CloudError(409,'This photo or lookup was already submitted. Its outcome is not yet confirmed; no new provider call was made.',code='request_pending')
-                q("INSERT INTO cloud_paid_requests(owner_id,id,provider,fingerprint,state,response,status,created_at) VALUES(?,?,?,?,'complete',?,?,?)",(owner,request_id,provider,fingerprint,recent['response'],recent['status'],self.now()))
-                return recent['status'],recent['response'].encode()
+                if recent['state']!='complete':raise CloudError(409,'This photo or lookup was already submitted. Its outcome is not yet confirmed; no new provider call was made.',code='request_pending',requestId=recent['id'])
+                if not (retry_of is not None and not 200<=recent['status']<300):
+                    q("INSERT INTO cloud_paid_requests(owner_id,id,provider,fingerprint,state,response,status,created_at) VALUES(?,?,?,?,'complete',?,?,?)",(owner,request_id,provider,fingerprint,recent['response'],recent['status'],self.now()))
+                    return recent['status'],recent['response'].encode()
             public=a['role']!='owner' and a['tier'] not in {'approved','invited'}
             try:
                 self._rate(q,'burst:'+provider+':'+owner,2 if provider=='tcgapi' else 30,1 if provider=='tcgapi' else 60)

@@ -4,6 +4,7 @@ const STORAGE_KEY = 'pokesift.collection.v1';
 const FX_KEY = 'pokesift.fx.v1';
 let fx = null, fxLoading = false, fxFailed = false;
 const busyStates = new Set(['preparing', 'queued', 'scanning']);
+const failedStates = new Set(['error', 'interrupted']);
 const reviewStates = new Set(['ambiguous', 'retake', 'not_found', 'unsupported', 'error', 'interrupted']);
 let collectionViews = null;
 let entries = [], filter = 'all', active = 0, stream = null, cameraGeneration = 0;
@@ -219,7 +220,10 @@ function renderDetail() {
   $('toggle-photo').hidden = !e.canonicalImage; $('toggle-photo').textContent = showCapturedPhoto ? 'View catalog image' : 'View your photo'; $('detail-photo').alt = titleOf(e);
   $('detail-image-note').textContent = e.canonicalImage && !showCapturedPhoto ? `Catalog image · ${e.catalogMatch ? 'PikaQian' : 'TCGPlayer'}` : e.status === 'matched' ? 'Your photo' : 'Your photo · no verified catalog image';
   $('detail-badge').textContent = statusOf(e);
-  $('retake-card').hidden=e.status!=='retake';$('retake-card').disabled=readOnlyStorage;
+  $('retry-scan').hidden=!failedStates.has(e.status);$('retry-scan').disabled=readOnlyStorage;
+  $('retry-scan-note').hidden=!failedStates.has(e.status);
+  $('retake-card').hidden=e.status!=='retake'&&!failedStates.has(e.status);$('retake-card').disabled=readOnlyStorage;
+  $('retake-card').textContent=failedStates.has(e.status)?'Choose another photo ↗':'Retake photo ↗';
   $('detail-title').textContent = titleOf(e);
   $('detail-set').textContent = identityOf(e).set || 'YOUR CAPTURE';
   $('detail-meta').textContent = [identityOf(e).number,card?.rarity,card?.suggested_printing || readOf(e).finish,readOf(e).stamp,languageOf(e)].filter(Boolean).join(' · ');
@@ -254,7 +258,7 @@ function renderDetail() {
   renderEnrichment(e);
   $('detail-warnings').replaceChildren();
   for (const warning of Array.isArray(payload?.warnings) ? payload.warnings : []) $('detail-warnings').append(element('p','notice',String(warning)));
-  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,scanHistory:e.scanHistory || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
+  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,scanHistory:e.scanHistory || [],scanAttempts:e.scanAttempts || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
   $('raw-details').hidden = busyStates.has(e.status);
   renderRemoval(e);
   window.PokeSiftCardDetails?.render(e);
@@ -333,7 +337,7 @@ function addFiles(files, capture=null) {
         let e;
         if(replacingId) {
           e=entries.find(item=>item.id===replacingId);
-          if(!e || e.status!=='retake')throw new Error('This card changed. Open it again before retaking.');
+          if(!e || (e.status!=='retake'&&!failedStates.has(e.status)))throw new Error('This card changed. Open it again before retaking.');
           retainHistoricalEvidence(e);
           const oldPhoto=await PokeSiftPhotos.get(e.id),history={id:crypto.randomUUID(),thumbnail:e.thumbnail,capturedAt:e.lastCapturedAt || e.createdAt,result:structuredClone(e.result || null),capture:e.capture || null};
           if(oldPhoto)history.scanPhoto={id:history.id,mime:oldPhoto.type,bytes:oldPhoto.size,quality:'exact_upload',persisted:await PokeSiftPhotos.put(history.id,oldPhoto)};
@@ -369,6 +373,28 @@ function showLatestFind(e) {
   clearTimeout(latestTimer); latestTimer = setTimeout(() => { banner.hidden = true; },7000);
 }
 let lastScanStart=0,scanThrottleUntil=0,pumpTimer;
+async function retryScan(id) {
+  const e=entries.find(entry=>entry.id===id);
+  if(!e||!failedStates.has(e.status)||readOnlyStorage)return;
+  if(pendingPreparation+jobs.length+active>=20){notify('The queue is full. Let a few cards finish before retrying.');return;}
+  const previous=structuredClone(e);
+  pendingPreparation++;e.status='preparing';e.message='Loading your saved photo…';render();
+  try {
+    const blob=await PokeSiftPhotos.get(id);
+    if(!blob)throw Error('The original photo isn’t available. Choose another photo for this card.');
+    if(!['image/jpeg','image/png','image/webp'].includes(blob.type)||!blob.size||blob.size>8*1024*1024)throw Error('The saved photo cannot be scanned. Choose another photo for this card.');
+    if(readOnlyStorage||entries.find(entry=>entry.id===id)!==e)throw Error('This card changed. Reload before retrying.');
+    const requestId=crypto.randomUUID(),retryOf=previous.scanRequestId||requestId;
+    e.scanAttempts=[...(e.scanAttempts||[]),{requestId:previous.scanRequestId||null,status:previous.status,message:previous.message||'',result:structuredClone(previous.result||null),retriedAt:new Date().toISOString()}];
+    e.status='queued';e.message='';e.scanRequestId=requestId;
+    if(!save())throw Error('Could not save this retry. Your card and photo have been kept.');
+    sessionIds.add(id);jobs.push({id,blob,requestId,retryOf});render();pump();
+  } catch(error) {
+    for(const key of Object.keys(e))delete e[key];Object.assign(e,previous);
+    notify(error.message||'Could not load the saved photo. Try again.');
+  } finally {pendingPreparation--;render();}
+}
+$('retry-scan').onclick=()=>retryScan(focusedId);
 function pump() {
   clearTimeout(pumpTimer);
   while (active < 2 && jobs.length) {
@@ -395,24 +421,26 @@ async function cacheCanonicalImage(e) {
   } catch { /* Keep the captured photo; image failure never changes scan results. */ }
   finally { clearTimeout(timeout); }
 }
-async function runJob({id,blob,requestId=crypto.randomUUID()}) {
+async function runJob({id,blob,requestId=crypto.randomUUID(),retryOf}) {
   const e = entries.find(entry => entry.id === id); if (!e) return;
   e.status = 'scanning';e.scanRequestId=requestId;save(); render();
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(),60000);
   try {
-    const response = await fetch('/api/identify',{method:'POST',headers:{'Content-Type':blob.type,'X-Request-ID':requestId},body:blob,credentials:'same-origin',redirect:'error',referrerPolicy:'no-referrer',signal:controller.signal});
+    const response = await fetch('/api/identify',{method:'POST',headers:{'Content-Type':blob.type,'X-Request-ID':requestId,...(retryOf?{'X-PokeSift-Retry-Of':retryOf}:{})},body:blob,credentials:'same-origin',redirect:'error',referrerPolicy:'no-referrer',signal:controller.signal});
     let result;
     try { result = await response.json(); } catch { throw new Error('The server returned an unreadable response. A scan may have been used. No retry was made.'); }
+    if(response.status===409&&result?.error?.code==='request_pending'&&/^[A-Za-z0-9_.:-]{1,100}$/.test(result.error.requestId||''))e.scanRequestId=result.error.requestId;
     // Only an explicit pre-provider throttle rejection is safe to queue again.
     if(response.status===429&&response.headers.get('X-PokeSift-Scan-Throttled')==='1'&&result?.error?.code==='scan_throttled'&&Number.isInteger(result.error.retryAfter)&&result.error.retryAfter>0&&result.error.retryAfter<=60){
       scanThrottleUntil=Math.max(scanThrottleUntil,Date.now()+result.error.retryAfter*1000);
       e.status='queued';e.message=`Waiting ${result.error.retryAfter} seconds before the next scan. Your photo is saved.`;
-      jobs.unshift({id,blob,requestId});return;
+      jobs.unshift({id,blob,requestId,retryOf});return;
     }
     if (!response.ok) throw new Error(result?.error?.message || `The server returned HTTP ${response.status}. No retry was made.`);
     if (!['matched','ambiguous','retake','not_found','unsupported'].includes(result?.data?.status)) throw new Error('The provider returned an unexpected result. A scan may have been used. No retry was made.');
     e.providerObservations = [...(e.providerObservations || []),{provider:'tcgapi',operation:'identify',receivedAt:new Date().toISOString(),snapshotKind:'provider_response',parameters:{game:'pokemon',include:'prices'},response:structuredClone(result)}];
     e.result = normalizeResult(result); e.currencyAssumed = Boolean(e.result.data.candidates?.some(c => c.prices?.some(p => p.currency_assumed))); e.status = result.data.status;
+    e.message='';
     showLatestFind(e);
     cacheCanonicalImage(e);
     if (canEnrich(e)) enrichCard(e);
@@ -698,7 +726,7 @@ function renderRetakeMode() {
   $('retake-note').textContent=retakeId?'Retake this card · the next photo updates its saved entry and uses one scan.':'';
 }
 function startRetake(id) {
-  if(readOnlyStorage || !entries.some(e=>e.id===id && e.status==='retake'))return;
+  if(readOnlyStorage || !entries.some(e=>e.id===id && (e.status==='retake'||failedStates.has(e.status))))return;
   retakeId=id;
   if($('detail-view').open)$('detail-view').close();
   openCamera();if(!stream)enableCamera();

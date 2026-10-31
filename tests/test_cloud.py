@@ -171,6 +171,36 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(self.store.reserve_paid(self.a,'second','tcgapi','photo'),(200,b'ok'))
         self.assertEqual(self.store.account_info(self.a)['scansUsed'],1)
         self.assert_error(409,lambda:self.store.reserve_paid(self.a,'second','tcgapi','different'))
+    def test_explicit_retry_can_replace_completed_failure_once(self):
+        self.store.reserve_paid(self.a,'failed','tcgapi','photo')
+        self.store.finish_paid(self.a,'failed','tcgapi',503,b'unavailable')
+        self.assertEqual(self.store.reserve_paid(self.a,'duplicate','tcgapi','photo'),(503,b'unavailable'))
+        self.now+=2
+        self.assertIsNone(self.store.reserve_paid(self.a,'retry','tcgapi','photo',retry_of='failed'))
+        self.assertEqual(self.store.account_info(self.a)['scansUsed'],2)
+        self.assert_error(409,lambda:self.store.reserve_paid(self.a,'retry-again','tcgapi','photo',retry_of='retry'))
+        self.store.finish_paid(self.a,'retry','tcgapi',200,b'recovered')
+        self.assertEqual(self.store.reserve_paid(self.a,'retry','tcgapi','photo',retry_of='failed'),(200,b'recovered'))
+        self.assertEqual(self.store.reserve_paid(self.a,'recover','tcgapi','photo',retry_of='retry'),(200,b'recovered'))
+        self.assertEqual(self.store.account_info(self.a)['scansUsed'],2)
+    def test_manual_retry_never_repeats_old_uncertain_submission(self):
+        self.store.reserve_paid(self.a,'pending','tcgapi','photo')
+        self.now+=3600
+        for prior in ['pending','legacy-without-request-id']:
+            error=self.assert_error(409,lambda:self.store.reserve_paid(self.a,str(uuid.uuid4()),'tcgapi','photo',retry_of=prior))
+            self.assertEqual(error.extra['code'],'request_pending')
+            self.assertEqual(error.extra['requestId'],'pending')
+        self.assertEqual(self.store.account_info(self.a)['scansUsed'],1)
+        self.store.finish_paid(self.a,'pending','tcgapi',200,b'arrived')
+        self.assertEqual(self.store.reserve_paid(self.a,'recover','tcgapi','photo',retry_of='pending'),(200,b'arrived'))
+    def test_retry_preserves_trial_limits_and_original_photo_binding(self):
+        for i in range(3):
+            self.now+=2
+            self.store.reserve_paid(self.a,'attempt-'+str(i),'tcgapi','photo',retry_of='legacy')
+            self.store.finish_paid(self.a,'attempt-'+str(i),'tcgapi',503,b'failed')
+        self.now+=2
+        self.assertEqual(self.assert_error(429,lambda:self.store.reserve_paid(self.a,'fourth','tcgapi','photo',retry_of='attempt-2')).extra['code'],'trial_exhausted')
+        self.assert_error(409,lambda:self.store.reserve_paid(self.a,'changed','tcgapi','different-photo',retry_of='attempt-2'))
     def test_public_catalog_abuse_is_bounded_independently_of_scan_accounts(self):
         self.store.limits['public_catalog_daily']=2
         for i in range(2):self.store.reserve_paid(self.a,'lookup-'+str(i),'pikaqian','url-'+str(i))

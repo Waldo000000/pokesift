@@ -402,6 +402,31 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await qp.locator('#update-missing-prices').click();await qp.waitForFunction(()=>document.querySelector('#bulk-price-status').textContent.startsWith('Stopped.'));
   assert.equal(quotaLookups,1);assert.equal(await qp.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries.find(e=>e.id==='old-11').catalogMatch.card.provider_id,key),chineseCandidate.card.provider_id);
   await quotaCatalog.close();
+  // Failed scans can reuse the exact saved upload after reload, without a
+  // duplicate card, lost metadata or repeated clicks spending twice.
+  const retries=await newContext(),retryPage=await retries.newPage();let retryCalls=0,retryBodies=[];
+  await retryPage.route('**/api/identify',async r=>{retryCalls++;retryBodies.push(r.request().postDataBuffer());if(retryCalls===1)return r.fulfill({status:429,json:{error:{message:'The shared or account allowance is currently full.'}}});await new Promise(resolve=>setTimeout(resolve,300));return r.fulfill({json:{data:{status:'matched',read:{name:'Recovered card'},candidates:[]}}});});
+  await retryPage.goto(`http://127.0.0.1:${port}`);await retryPage.locator('#open-camera').click();await retryPage.locator('#photo-input').setInputFiles(photo);
+  await retryPage.waitForFunction(()=>entries[0]?.status==='error');await retryPage.locator('#close-camera').click();
+  const failed=await retryPage.evaluate(()=>{entries[0].collectorNote='Keep this note';save();return structuredClone(entries[0]);});
+  await retryPage.reload();assert.equal(retryCalls,1,'Reloading failed scans must not retry them');
+  await retryPage.locator('.card-tile').click();await retryPage.locator('#retry-scan').waitFor({state:'visible'});
+  await retryPage.evaluate(()=>{document.querySelector('#retry-scan').click();document.querySelector('#retry-scan').click();});
+  await retryPage.waitForFunction(()=>entries[0]?.status==='matched');
+  const recovered=await retryPage.evaluate(()=>structuredClone(entries[0]));
+  assert.equal(retryCalls,2);assert(retryBodies[0].equals(retryBodies[1]),'Retry must use the original upload, not the thumbnail');
+  assert.equal(recovered.id,failed.id);assert.equal(recovered.createdAt,failed.createdAt);assert.equal(recovered.collectorNote,'Keep this note');assert.deepEqual(recovered.scanPhoto,failed.scanPhoto);
+  assert.equal(recovered.scanAttempts.length,1);assert.equal(recovered.scanAttempts[0].message,failed.message);assert.equal(recovered.message,'');assert(await retryPage.locator('#retry-scan').isHidden());
+  assert.equal(await retryPage.locator('.card-tile').count(),1);assert(await retryPage.locator('#detail-message').isHidden());
+  // A missing original never falls back to a lower quality thumbnail or sends
+  // a scan; another photo can replace the failed capture on the same card.
+  await retryPage.evaluate(async()=>{await PokeSiftPhotos.remove(entries[0].id);entries[0].status='error';entries[0].message='Earlier failure';save();render();});
+  await retryPage.locator('#retry-scan').click();await retryPage.waitForFunction(()=>entries[0]?.status==='error'&&document.querySelector('#toast').textContent.includes('original photo'));
+  assert.equal(retryCalls,2);assert.equal(await retryPage.locator('#retry-scan').isVisible(),true);
+  await retryPage.getByRole('button',{name:'Choose another photo ↗',exact:true}).click();await retryPage.locator('#photo-input').setInputFiles(photo);
+  await retryPage.waitForFunction(()=>entries[0]?.status==='matched');await retryPage.locator('#close-camera').click();
+  assert.equal(await retryPage.locator('.card-tile').count(),1);assert.equal(await retryPage.evaluate(()=>entries[0].id),failed.id);assert.equal(retryCalls,3);
+  await retries.close();
   // Retake is explicit, updates the same card and preserves the previous upload in backups.
   const retakes=await newContext(),rp=await retakes.newPage();let retakeScans=0;
   await rp.route('**/api/identify',r=>{retakeScans++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(fixture('Retaken card',retakeScans===1?'retake':'matched'))});});

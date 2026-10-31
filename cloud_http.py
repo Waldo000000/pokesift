@@ -15,6 +15,7 @@ class CloudHTTP:
     def __init__(self,store,media,auth):
         self.store,self.media,self.auth=store,media,auth
         self.context=contextvars.ContextVar('cloud_request',default=None)
+        self.scan_retry=contextvars.ContextVar('cloud_scan_retry',default=None)
 
     @staticmethod
     def configured():
@@ -54,6 +55,7 @@ class CloudHTTP:
             try:identifier(request_id)
             except CloudError as e:h.error(e.status,e.message);return False
         self.context.set((account['id'],request_id or secrets.token_hex(16)))
+        self.scan_retry.set(h.headers.get('X-PokeSift-Retry-Of') if h.path=='/api/identify' else None)
         return True
 
     @staticmethod
@@ -150,7 +152,7 @@ class CloudHTTP:
             account=self.context.get()
             if not account:raise CloudError(401,'Account required.')
             owner,rid=account
-            cached=self.store.reserve_paid(owner,rid,'tcgapi',digest(mime.encode()+body))
+            cached=self.store.reserve_paid(owner,rid,'tcgapi',digest(mime.encode()+body),retry_of=self.scan_retry.get())
             if cached:return cached
             status,response=forward(key,body,mime)
             try:

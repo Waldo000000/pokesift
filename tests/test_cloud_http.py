@@ -99,6 +99,36 @@ class CloudHTTPTests(unittest.TestCase):
         self.assertTrue(any(k.lower()=='x-pokesift-scan-throttled' and v=='1' for k,v in headers))
         self.assertEqual(len(self.calls),6)
 
+    def test_manual_retry_header_allows_completed_failure_but_not_uncertain_call(self):
+        import time
+        now=[int(time.time())];self.store.clock=lambda:now[0]
+        def provider(*_):
+            self.calls.append('called')
+            return (503,b'{"error":{"message":"Unavailable"}}') if len(self.calls)==1 else (200,b'{"data":{"status":"matched"}}')
+        self.server.forward=self.cloud.wrap_scan(provider)
+        def scan(rid,prior=None):
+            headers={'Content-Type':'image/png','X-Request-ID':rid}
+            if prior:headers['X-PokeSift-Retry-Of']=prior
+            return self.request('/api/identify',PNG,**headers)
+        self.assertEqual(scan('failed')[0],503)
+        self.assertEqual(scan('automatic-duplicate')[0],503)
+        self.assertEqual(len(self.calls),1)
+        now[0]+=2
+        self.assertEqual(scan('manual-retry','failed')[0],200)
+        self.assertEqual(scan('recover-success','manual-retry')[0],200)
+        self.assertEqual(len(self.calls),2)
+        self.assertEqual(self.request('/api/identify',PNG+b'changed',**{'Content-Type':'image/png','X-Request-ID':'changed-photo','X-PokeSift-Retry-Of':'failed'})[0],409)
+        # A second photo loses its response upstream; an explicit retry cannot
+        # cause another call, even beyond the duplicate-photo cache window.
+        def uncertain(*_):self.calls.append('uncertain');raise TimeoutError()
+        self.server.forward=self.cloud.wrap_scan(uncertain);now[0]+=2
+        headers={'Content-Type':'image/png','X-Request-ID':'uncertain'}
+        self.assertEqual(self.request('/api/identify',PNG+b'other',**headers)[0],502)
+        now[0]+=3600
+        headers.update({'X-Request-ID':'uncertain-retry','X-PokeSift-Retry-Of':'uncertain'})
+        self.assertEqual(self.request('/api/identify',PNG+b'other',**headers)[0],409)
+        self.assertEqual(self.calls,['called','called','uncertain'])
+
     def test_callback_needs_single_use_state_and_issues_private_cookie(self):
         callback='/auth/callback?neon_auth_session_verifier=fixture-verifier'
         self.assertEqual(self.request(callback,cookie='')[0],401)

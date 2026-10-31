@@ -84,6 +84,18 @@ try{
  await second.p.evaluate(()=>PokeSiftCloud.recover('legacy-one'));await waitSynced(second.p);assert.equal(await second.p.locator('.card-tile').count(),1);
  // Reload reads the durable account cache and never imports the legacy source twice.
  await a.p.reload();await a.p.locator('.card-tile').waitFor();await waitSynced(a.p);assert.equal(await a.p.locator('#cloud-migration').isVisible(),false);
+ // A failed card's original photo is retrieved from private cloud storage on a
+ // second device and retried in place. Only the explicit button sends a scan.
+ await a.p.evaluate(async image=>{const id='cloud-retry-photo',blob=PokeSiftPhotos.decode(image);await PokeSiftPhotos.put(id,blob);entries.push({id,status:'error',createdAt:new Date().toISOString(),thumbnail:image,message:'Earlier allowance failure',scanRequestId:'blocked-before-policy',collectorNote:'Keep across retry',scanPhoto:{id,mime:blob.type,bytes:blob.size,persisted:true,sha256:await PokeSiftPhotos.digest(blob)}});save();render();},image);
+ await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);
+ assert.equal(await second.p.evaluate(()=>PokeSiftPhotos.getLocal('cloud-retry-photo').then(Boolean)),false);
+ let manualRetries=0;await second.c.route('**/api/identify',r=>{manualRetries++;assert.equal(r.request().headers()['x-pokesift-retry-of'],'blocked-before-policy');assert.notEqual(r.request().headers()['x-request-id'],'blocked-before-policy');assert(r.request().postDataBuffer().equals(Buffer.from(image.split(',')[1],'base64')));return r.fulfill({json:{data:{status:'matched',read:{name:'Recovered Pikachu'},candidates:[]}}});});
+ await second.p.evaluate(()=>openDetail('cloud-retry-photo'));await second.p.locator('#retry-scan').click();
+ await second.p.waitForFunction(()=>entries.find(e=>e.id==='cloud-retry-photo')?.status==='matched');assert.equal(manualRetries,1);
+ const retryCard=await second.p.evaluate(()=>structuredClone(entries.find(e=>e.id==='cloud-retry-photo')));assert.equal(retryCard.collectorNote,'Keep across retry');assert.equal(retryCard.scanAttempts[0].message,'Earlier allowance failure');assert.equal(retryCard.message,'');
+ await second.p.locator('#close-detail').click();await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
+ assert.equal(await a.p.evaluate(()=>entries.filter(e=>e.id==='cloud-retry-photo'&&e.status==='matched').length),1);
+ await second.c.unroute('**/api/identify');await a.p.evaluate(()=>{entries=entries.filter(e=>e.id!=='cloud-retry-photo');save();render();});await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
  // Only an explicit, pre-provider throttle is automatically queued again.
  let scanAttempts=0;const requestIds=[];
  await a.c.route('**/api/identify',r=>{scanAttempts++;requestIds.push(r.request().headers()['x-request-id']);return r.fulfill(scanAttempts===1?{status:429,headers:{'X-PokeSift-Scan-Throttled':'1'},json:{error:{code:'scan_throttled',retryAfter:1,message:'Queued'}}}:{json:{data:{status:'matched',read:{name:'Pikachu'},candidates:[]}}});});
@@ -92,8 +104,14 @@ try{
  assert.equal(scanAttempts,2);assert.equal(requestIds[0],requestIds[1]);
  await a.c.unroute('**/api/identify');
  let uncertainAttempts=0;await a.c.route('**/api/identify',r=>{uncertainAttempts++;return r.abort();});
- await a.p.evaluate(image=>{const id='uncertain-photo';entries.push({id,status:'queued',createdAt:new Date().toISOString(),thumbnail:image});jobs.push({id,blob:new Blob([new Uint8Array([137,80,78,71,13,10,26,10])],{type:'image/png'})});pump();},image);
+ await a.p.evaluate(async image=>{const id='uncertain-photo',blob=PokeSiftPhotos.decode(image);await PokeSiftPhotos.put(id,blob);entries.push({id,status:'queued',createdAt:new Date().toISOString(),thumbnail:image,scanPhoto:{id,mime:blob.type,bytes:blob.size,persisted:true,sha256:await PokeSiftPhotos.digest(blob)}});jobs.push({id,blob});pump();},image);
  await a.p.waitForFunction(()=>entries.find(e=>e.id==='uncertain-photo')?.status==='interrupted');await a.p.waitForTimeout(1200);assert.equal(uncertainAttempts,1);
+ const uncertainId=await a.p.evaluate(()=>entries.find(e=>e.id==='uncertain-photo').scanRequestId);
+ await a.c.unroute('**/api/identify');let recoveryAttempts=0;
+ await a.c.route('**/api/identify',r=>{recoveryAttempts++;assert.equal(r.request().headers()['x-pokesift-retry-of'],uncertainId);return r.fulfill(recoveryAttempts===1?{status:409,json:{error:{code:'request_pending',requestId:uncertainId,message:'Still pending'}}}:{json:{data:{status:'matched',read:{name:'Recovered result'},candidates:[]}}});});
+ await a.p.evaluate(()=>openDetail('uncertain-photo'));await a.p.locator('#retry-scan').click();await a.p.waitForFunction(()=>entries.find(e=>e.id==='uncertain-photo')?.status==='error');
+ assert.equal(await a.p.evaluate(()=>entries.find(e=>e.id==='uncertain-photo').scanRequestId),uncertainId);
+ await a.p.locator('#retry-scan').click();await a.p.waitForFunction(()=>entries.find(e=>e.id==='uncertain-photo')?.status==='matched');assert.equal(recoveryAttempts,2);await a.p.locator('#close-detail').click();
  await a.c.unroute('**/api/identify');await a.p.evaluate(()=>{entries=entries.filter(e=>!['paced-photo','uncertain-photo'].includes(e.id));save();render();});
  // A provider error with a similar JSON code is not a pre-provider rejection.
  let providerErrors=0;await a.c.route('**/api/identify',r=>{providerErrors++;return r.fulfill({status:429,json:{error:{code:'scan_throttled',retryAfter:1,message:'Provider error'}}});});
