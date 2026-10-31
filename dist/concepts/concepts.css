@@ -32,3 +32,10 @@ body{color:var(--ink)}
 @media(max-width:640px){.prototype-bar{flex-wrap:wrap;gap:4px 12px}.prototype-bar nav{order:3;width:100%;justify-content:center}.prototype-bar .choose-button{max-width:none;margin-left:auto}}
 
 .page-corner:focus-visible{outline:2px solid #657a43;outline-offset:2px}
+
+/* Keep the main fan's labels and scroll extent stable while sifting. */
+#desk-layout .sift-controls>.fan-caption{display:grid;flex:1;min-width:0;row-gap:7px}
+#desk-layout .sift-controls>.circle-button{flex-shrink:0}
+.fan-caption strong{grid-area:1/1;overflow-wrap:anywhere}
+.sift-controls .fan-caption span{grid-area:2/1;margin-top:0;overflow-wrap:anywhere}
+.fan-caption-sizer{visibility:hidden;pointer-events:none}

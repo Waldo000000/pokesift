@@ -80,6 +80,34 @@ for(const direction of [1,-1]){
   assert(Math.abs(Number(await host.getAttribute('data-position'))-(initial-direction*105/30))<.002,'The live fan tracks further held movement at full speed');
   await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await p.waitForTimeout(550);
 }
+// Switching between short and multi-line labels must not resize the caption
+// or clamp the iframe's scroll position, moving the whole fan under a thumb.
+await p.evaluate(()=>{const card=entries.find(e=>e.id==='pika-one').result.data.candidates[0];card.name='Mega Charizard X ex & Mega Charizard Y ex';card.set.name='An exceptionally long expansion title with several lines of saved card details';card.suggested_printing='Special illustration rare textured holofoil';save();render();});
+for(const width of [320,390,768,1280]){
+  await p.setViewportSize({width,height:width<700?844:1000});
+  const geometry=await f.locator('#card-fan').evaluate(async host=>{
+    PokeSiftMotion.set('reduced');
+    const step=key=>host.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));
+    const settled=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    const read=()=>{const caption=document.querySelector('.sift-controls'),name=document.querySelector('#fan-name'),meta=document.querySelector('#fan-meta');return {top:host.getBoundingClientRect().top,caption:caption.getBoundingClientRect().height,body:document.documentElement.scrollHeight,readable:name.scrollHeight<=name.clientHeight+1&&meta.scrollHeight<=meta.clientHeight+1};};
+    for(let i=0;i<10;i++)step('ArrowLeft');await settled();
+    const rows=[];
+    for(let i=0;i<5;i++){window.scrollTo(0,document.documentElement.scrollHeight);await settled();rows.push(read());step('ArrowRight');await settled();rows.push(read());}
+    return rows;
+  });
+  for(const field of ['top','caption','body'])assert(Math.max(...geometry.map(r=>r[field]))-Math.min(...geometry.map(r=>r[field]))<.5,'Fan '+field+' must stay fixed across wrapped labels at width '+width);
+  assert(geometry.every(r=>r.readable),'Full card names and metadata must remain readable');
+}
+await p.setViewportSize({width:390,height:844});
+await f.locator('#card-fan').evaluate(host=>{for(let i=0;i<10;i++)host.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));});
+await f.locator('#card-fan').scrollIntoViewIfNeeded();
+const stableHost=f.locator('#card-fan'),stableBounds=await stableHost.boundingBox(),stableX=stableBounds.x+stableBounds.width-45,stableY=stableBounds.y+stableBounds.height/2;
+const heldGeometry=()=>stableHost.evaluate(host=>({top:host.getBoundingClientRect().top,caption:document.querySelector('.sift-controls').getBoundingClientRect().height,body:document.documentElement.scrollHeight})),heldRows=[await heldGeometry()];
+await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:stableX,y:stableY,id:1}]});
+await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:stableX-15,y:stableY,id:1}]});await p.waitForTimeout(450);
+for(let dx=30;dx<=120;dx+=30){await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:stableX-dx,y:stableY,id:1}]});heldRows.push(await heldGeometry());}
+await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+for(const field of ['top','caption','body'])assert(Math.max(...heldRows.map(r=>r[field]))-Math.min(...heldRows.map(r=>r[field]))<.5,'Held sifting must not move the fan vertically when labels change');
 await p.locator('[data-collection-view="grid"]').click();
 await p.evaluate(()=>{entries=entries.filter(e=>e.id!=='unknown');save();render();});
 f=await view('binder');assert.equal(await f.locator('[data-slot="0"] .sleeved-card').count(),0);

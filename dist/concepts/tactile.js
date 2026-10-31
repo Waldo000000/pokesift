@@ -136,6 +136,12 @@
       // First in the sort order belongs on top: the rightmost physical card.
       const selectedKey=fanSelectionReset?null:mainFan?.selectedKey,list=filtered().reverse();
       const retained=list.findIndex(c=>c.key===selectedKey);$('no-cards').hidden=!!list.length;mainFan?.destroy();
+      // Overlapping hidden labels reserve the longest name and metadata rows
+      // at the current width. Changing selection cannot resize the scroll area.
+      const caption=$('fan-name').parentElement,sizing=document.createDocumentFragment();caption.classList.add('fan-caption');
+      caption.querySelectorAll('.fan-caption-sizer').forEach(n=>n.remove());
+      for(const c of list)for(const [tag,text] of [['strong',c.name],['span',[c.type,c.set,c.edition].join(' · ')]]){const label=document.createElement(tag);label.className='fan-caption-sizer';label.setAttribute('aria-hidden','true');label.textContent=text;sizing.append(label);}
+      caption.append(sizing);
       mainFan=makeFan($('card-fan'),list,{initialIndex:retained>=0?retained:Math.max(0,list.length-1),onChange:(i,c)=>{index=i;$('fan-name').textContent=c?.name||'No cards here yet';$('fan-meta').textContent=c?[c.type,c.set,c.edition].join(' · '):'';$('fan-position').textContent=c?`${list.length-i} / ${list.length} CARDS`:'';$('fan-prev').disabled=i<=0;$('fan-next').disabled=i>=list.length-1;}});fanSelectionReset=false;$('thumbnail-rail').replaceChildren();return;
     }
     reconcile();page=Math.floor(Math.max(0,Math.min(page,layout.slots.length/9-1))/pageStep())*pageStep();$('no-cards').hidden=true;renderBook();
