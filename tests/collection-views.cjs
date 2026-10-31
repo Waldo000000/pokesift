@@ -60,6 +60,26 @@ await p.mouse.move(cancelCorner.x+cancelCorner.width/2,cancelCorner.y+cancelCorn
 await p.mouse.move(cancelCorner.x+cancelCorner.width/2+6,cancelCorner.y+cancelCorner.height/2);await p.mouse.up();
 await f.locator('.turning-sheet').waitFor({state:'detached'});assert.equal(await f.locator('#binder-spread').getAttribute('data-start-page'),'1');
 assert.equal(await p.evaluate(()=>Object.keys(localStorage).filter(k=>k.startsWith('pokesift.prototype')).length),0);
+// The live collection iframe uses the same thumb tracking as the prototype:
+// movement before a hold is retained and held motion follows at full scale.
+f=await view('desk');await f.locator('#card-fan .fan-card').first().waitFor();
+const nativeFanTouch=await c.newCDPSession(p);
+for(const direction of [1,-1]){
+  await f.locator('#sort').selectOption('value');
+  if(direction===-1)for(let i=0;i<4;i++)await f.locator('#card-fan').press('ArrowLeft');
+  await p.waitForTimeout(500);await f.locator('#card-fan').scrollIntoViewIfNeeded();
+  const host=f.locator('#card-fan'),bounds=await host.boundingBox(),initial=Number(await host.getAttribute('data-position'));
+  assert.equal(initial,direction===1?4:0);
+  const x=bounds.x+(direction===1?50:bounds.width-50),y=bounds.y+bounds.height/2;
+  await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y,id:1}]});
+  await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+direction*75,y,id:1}]});await p.waitForTimeout(40);
+  assert(Math.abs(Number(await host.getAttribute('data-position'))-(initial-direction*75/105))<.002,'Quick previews retain their original single-card sensitivity');
+  await p.waitForTimeout(450);
+  assert(Math.abs(Number(await host.getAttribute('data-position'))-(initial-direction*75/30))<.002,'The live fan catches up when the hold is recognized, without another touch event');
+  await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+direction*105,y,id:1}]});await p.waitForTimeout(40);
+  assert(Math.abs(Number(await host.getAttribute('data-position'))-(initial-direction*105/30))<.002,'The live fan tracks further held movement at full speed');
+  await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await p.waitForTimeout(550);
+}
 await p.locator('[data-collection-view="grid"]').click();
 await p.evaluate(()=>{entries=entries.filter(e=>e.id!=='unknown');save();render();});
 f=await view('binder');assert.equal(await f.locator('[data-slot="0"] .sleeved-card').count(),0);

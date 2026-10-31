@@ -37,11 +37,12 @@
     host.classList.add('tactile-fan');host.replaceChildren();
     const buttons=list.map((c,i)=>{const b=document.createElement('button');b.className='fan-card';b.dataset.fanIndex=i;b.setAttribute('aria-label',c.name+', '+valueOfCard(c));b.innerHTML=`<img src="${escapeHTML(img(c))}" alt="${escapeHTML(c.name)} ${escapeHTML(c.edition)}" draggable="false" loading="lazy" decoding="async"><span class="fan-price">${valueOfCard(c)}</span>`;b.onclick=e=>{if(e.detail===0){if(Math.round(position)===i)onOpen(c);else go(i);}};host.append(b);return b;});
     const step=()=>host.clientWidth<500?105:145;
+    const spacing=()=>host.clientWidth<500?30:43;
     const flickGesture={maxMs:420,pauseMs:180,minPixels:12,minSpeed:.12,straightness:.75};
     function paint(){
       const mobile=host.clientWidth<500,selected=Math.max(0,Math.min(list.length-1,Math.round(position)));
-      const cardWidth=buttons[0]?.offsetWidth||180,spacing=mobile?30:43,radius=mobile?900:1250;
-      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),fraction=Math.max(0,Math.min(1,i-revealAnchor)),opening=gapWeights?.[i]??fraction*fraction*(3-2*fraction),arc=d*spacing+opening*cardWidth*.88*reveal,angle=arc/radius;
+      const cardWidth=buttons[0]?.offsetWidth||180,gap=spacing(),radius=mobile?900:1250;
+      buttons.forEach((b,i)=>{const d=i-position,a=Math.abs(d),fraction=Math.max(0,Math.min(1,i-revealAnchor)),opening=gapWeights?.[i]??fraction*fraction*(3-2*fraction),arc=d*gap+opening*cardWidth*.88*reveal,angle=arc/radius;
         b.style.transform=`translateX(calc(-50% + ${Math.sin(angle)*radius}px)) translateY(${(1-Math.cos(angle))*radius}px) rotate(${angle*180/Math.PI}deg)`;const fade=list.length>30?Math.max(0,Math.min(1,(a-10)/8)):0,opacity=1-fade*fade*(3-2*fade);b.style.opacity=String(opacity);b.style.zIndex=String(i+1);b.style.visibility=opacity>0?'visible':'hidden';b.style.willChange=opacity>0?'transform':'auto';b.style.pointerEvents=opacity>0?'auto':'none';b.classList.toggle('selected',i===selected);b.tabIndex=i===selected?0:-1;b.setAttribute('aria-pressed',String(i===selected));b.querySelector('.fan-price').style.opacity=String(Math.max(0,1-a*2));});
       host.dataset.position=position.toFixed(3);host.dataset.reveal=reveal.toFixed(3);
       if(selected!==lastLabel){lastLabel=selected;onChange(selected,list[selected]);}
@@ -83,16 +84,20 @@
       if(reduced()){paint();return;}
       if(!frame)frame=requestAnimationFrame(()=>{frame=0;paint();});
     }
-    function beginDrag(){if(!gesture||!gesture.moved||gesture.dragging)return;clearTimeout(gestureTimer);gesture.dragging=true;gesture.dragPosition=position;gesture.dragX=gesture.appliedX;revealTo(0);}
+    function followPointer(x){
+      const dx=x-gesture.x,max=Math.max(0,list.length-1);
+      // A held deck tracks the original touch, including movement made while
+      // the gesture was still a capped, single-card flick preview.
+      let raw=gesture.position-dx/(gesture.dragging?spacing():step());
+      if(!gesture.dragging){const next=Math.max(0,Math.min(max,gesture.startIndex-Math.sign(dx)));raw=dx>0?Math.max(next,raw):Math.min(next,raw);}
+      target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;gesture.appliedX=x;follow();
+    }
+    function beginDrag(){if(!gesture||!gesture.moved||gesture.dragging)return;clearTimeout(gestureTimer);gesture.dragging=true;revealTo(0);followPointer(gesture.appliedX);}
     host.addEventListener('pointerdown',e=>{if(e.button!==0||!list.length||gesture)return;const startIndex=Math.round(frame?target:position),now=performance.now();cancelAnimationFrame(frame);frame=0;cancelAnimationFrame(revealFrame);revealFrame=0;target=position;gesture={id:e.pointerId,x:e.clientX,y:e.clientY,position,startIndex,started:now,lastMove:now,lastX:e.clientX,appliedX:e.clientX,path:0,moved:false,dragging:false,card:Number(e.target.closest('[data-fan-index]')?.dataset.fanIndex??-1)};host.setPointerCapture(e.pointerId);host.classList.add('is-dragging');},{signal});
     host.addEventListener('pointermove',e=>{if(!gesture||e.pointerId!==gesture.id)return;const dx=e.clientX-gesture.x,delta=Math.abs(e.clientX-gesture.lastX);if(delta>.5){gesture.path+=delta;gesture.lastX=e.clientX;gesture.lastMove=performance.now();}if(Math.abs(dx)>4)gesture.moved=true;if(!gesture.moved)return;
       if(!gesture.dragging){const remaining=flickGesture.maxMs-(performance.now()-gesture.started);clearTimeout(gestureTimer);if(remaining<=0||Math.abs(dx)<gesture.path*flickGesture.straightness)beginDrag();else gestureTimer=setTimeout(beginDrag,Math.min(flickGesture.pauseMs,remaining));}
-      const max=Math.max(0,list.length-1);
-      let raw=gesture.dragging?gesture.dragPosition-(e.clientX-gesture.dragX)/step():gesture.position-dx/step();
       // A quick sweep can span the screen, but previews at most the next card.
-      // Rebase at the current pose if it becomes a hold, so uncapping never jumps.
-      if(!gesture.dragging){const next=Math.max(0,Math.min(max,gesture.startIndex-Math.sign(dx)));raw=dx>0?Math.max(next,raw):Math.min(next,raw);}
-      target=raw<0?raw*.2:raw>max?max+(raw-max)*.2:raw;gesture.appliedX=e.clientX;follow();},{signal});
+      followPointer(e.clientX);},{signal});
     function release(e,cancelled=false){if(!gesture||e.pointerId!==gesture.id)return;const g=gesture;clearTimeout(gestureTimer);gesture=null;host.classList.remove('is-dragging');if(host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(cancelled){go(Math.round(g.position));return;}if(g.moved){
         const now=performance.now(),dx=e.clientX-g.x,dy=e.clientY-g.y,distance=Math.abs(dx),duration=now-g.started;
         // A quick release steps one card regardless of swipe length. A hold,
