@@ -748,7 +748,7 @@ function renderEnrichment(e) {
     if(/^data:image\/(jpeg|png|webp);base64,/.test(candidate.previewImage || '')){const image=element('img','catalog-preview');image.src=candidate.previewImage;image.alt='Possible '+card.name+' printing — not yet confirmed';box.append(image);}
     box.append(element('strong','',card.name),element('p','',[card.set?.name,card.set?.id,card.number,card.suggested_printing,'Simplified Chinese'].filter(Boolean).join(' · ')));
     const link=element('a','catalog-source','View card at PikaQian ↗');link.href='https://pikaqian.com/cards/'+encodeURIComponent(card.provider_id);link.target='_blank';link.rel='noopener noreferrer';box.append(link);
-    const choose=element('button','light-button','This is my printing');
+    const choose=element('button','primary catalog-confirm','This is my printing');choose.type='button';
     choose.onclick=()=>applyCatalogMatch(e,candidate,'user');box.append(choose);candidates.append(box);
   }
 }
