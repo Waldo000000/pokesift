@@ -12,7 +12,8 @@
     "test:cloud": "node tests/cloud-browser.cjs",
     "test:retries": "node tests/bulk-retries.cjs",
     "test:chinese-images": "node tests/chinese-images.cjs",
-    "test:binder": "node tests/binder-turns.cjs"
+    "test:binder": "node tests/binder-turns.cjs",
+    "test:startup": "node tests/startup.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

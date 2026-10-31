@@ -1,17 +1,17 @@
 'use strict';
 // Cloud account UI is opt-in; the existing device-only app stays intact until rollout.
 window.PokeSiftAccount=(()=>{
-  let user=null,join='',started=false;
+  let user=null,join='',starting=false,configured=false,collectionReady=false,openedAccount=null;
   const $=id=>document.getElementById(id),button=(text,handler)=>{const b=document.createElement('button');b.type='button';b.className='text-button';b.textContent=text;b.onclick=handler;return b;};
-  async function request(path,data){const r=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',redirect:'error',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const value=await r.json();if(!r.ok)throw Error(value.error?.message||'Unable to connect. Please try again.');return value;}
+  async function request(path,data){const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);try{const r=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',redirect:'error',signal:controller.signal,headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const value=await r.json();if(!r.ok)throw Object.assign(Error(value.error?.message||'Unable to connect. Please try again.'),{status:r.status});return value;}finally{clearTimeout(timeout);}}
   function message(text){$('account-status').textContent=text;}
-  function signedOut(text){document.body.dataset.auth='signed-out';$('pairing-status').textContent=text||'Sign in to keep your cards together across devices.';}
+  function signedOut(text){$('pairing-status').textContent=text||'Sign in to keep your cards together across devices.';PokeSiftStartup.show('signed-out');}
   async function refresh(){const r=await request('/api/session');user=r.account;$('account-name').textContent=user.name;$('account-email').textContent=user.email;$('scan-remaining').textContent=user.accessLevel==='owner'?'Owner access':user.accessLevel==='approved'?'Ongoing access · scans are gently paced':`${user.scansRemaining} trial scans remaining`;$('owner-tools').hidden=user.role!=='owner';$('request-access-section').hidden=user.accessLevel!=='trial';return user;}
   function setup(){
     $('pairing-view').querySelector('.fineprint').textContent='Your own collection, on your phone, tablet and computer. Start with a few trial scans, or join with an invitation from a friend.';
     $('check-session').hidden=true;
     const login=document.createElement('button');login.id='google-sign-in';login.className='primary';login.textContent='Continue with Google';
-    login.onclick=async()=>{login.disabled=true;$('pairing-status').textContent='Opening Google…';try{const r=await request('/api/account/sign-in',{});location.assign(r.url);}catch(e){signedOut(e.message);login.disabled=false;}};
+    login.onclick=()=>boot({signIn:true});
     $('pairing-view').append(login);
     $('add-device').hidden=true;$('sign-out').hidden=true;
     const footer=document.querySelector('.collection-footer');const account=button('Account',()=>show());account.id='account-button';footer.append(account);
@@ -54,20 +54,35 @@ window.PokeSiftAccount=(()=>{
     }catch(e){message(e.message);}
   }
   async function show(){try{await refresh();}catch(e){message(e.message);}$('account-view').showModal();}
-  async function boot(){
-    if(!window.POKESIFT_RUNTIME?.cloud||started)return;started=true;
-    const parameters=new URLSearchParams(location.hash.slice(1));const incoming=parameters.get('join');
-    if(incoming!==null){history.replaceState(null,'',location.pathname);if(/^[A-Za-z0-9_-]{20,100}$/.test(incoming)){join=incoming;try{sessionStorage.setItem('pokesift.join',join);}catch{}}}
-    try{join=join||sessionStorage.getItem('pokesift.join')||'';}catch{}
-    setup();
+  async function boot({signIn=false}={}){
+    if(!window.POKESIFT_RUNTIME?.cloud||starting)return;starting=true;
+    PokeSiftStartup.pending();
+    if(!configured){
+      const parameters=new URLSearchParams(location.hash.slice(1));const incoming=parameters.get('join');
+      if(incoming!==null){history.replaceState(null,'',location.pathname);if(/^[A-Za-z0-9_-]{20,100}$/.test(incoming)){join=incoming;try{sessionStorage.setItem('pokesift.join',join);}catch{}}}
+      try{join=join||sessionStorage.getItem('pokesift.join')||'';}catch{}
+      setup();configured=true;
+    }
     try{
-      await refresh();await PokeSiftCloud.open(user);document.body.dataset.auth='signed-in';window.dispatchEvent(new Event('pokesift:authenticated'));
-      if(PokeSiftCloud.hasLegacy()){$('cloud-migration').hidden=false;$('migration-copy').textContent=`This browser has ${PokeSiftCloud.legacy().entries.length} card${PokeSiftCloud.legacy().entries.length===1?'':'s'} from before cloud accounts. Back them up, then bring them into this account. No scans will be used.`;}
-      PokeSiftCloud.start();
-      if(join){$('join-code').value=join;await show();$('redeem-code').click();}
-    }catch(e){signedOut(e.message);}
+      try{await refresh();}catch(e){if(e.status!==401)throw e;PokeSiftCloud.stop();if(signIn){PokeSiftStartup.pending('Opening Google…');const r=await request('/api/account/sign-in',{});location.assign(r.url);}else signedOut();return;}
+      // A cookie can change in another tab. A new document resets all live
+      // queues and views before opening a different account's private cache.
+      if(collectionReady&&openedAccount!==user.id){PokeSiftCloud.stop();location.replace('/');return;}
+      if(!collectionReady){
+        const cached=await PokeSiftCloud.open(user);openedAccount=user.id;
+        if(!cached.entries.length)await PokeSiftCloud.loadInitial();
+        window.dispatchEvent(new Event('pokesift:authenticated'));collectionReady=true;
+        if(PokeSiftCloud.hasLegacy()){$('cloud-migration').hidden=false;$('migration-copy').textContent=`This browser has ${PokeSiftCloud.legacy().entries.length} card${PokeSiftCloud.legacy().entries.length===1?'':'s'} from before cloud accounts. Back them up, then bring them into this account. No scans will be used.`;}
+        PokeSiftCloud.start();
+      }else PokeSiftCloud.resume();
+      PokeSiftStartup.show('signed-in');
+      if(join){$('join-code').value=join;$('account-view').showModal();$('redeem-code').click();}
+    }catch(e){PokeSiftCloud.stop();if(e.status===401)signedOut('Your session ended. Sign in again to continue.');else PokeSiftStartup.error('Could not open your collection. Check your connection and try again.',()=>boot());}
+    finally{starting=false;}
   }
-  window.addEventListener('DOMContentLoaded',boot,{once:true});
-  window.addEventListener('pokesift:unauthorized',()=>{if(window.POKESIFT_RUNTIME?.cloud){PokeSiftCloud.stop();signedOut('Your session ended. Sign in again to continue. Local pending changes are retained for this account.');}});
+  window.addEventListener('DOMContentLoaded',()=>boot(),{once:true});
+  window.addEventListener('pageshow',event=>{if(event.persisted)boot();});
+  window.addEventListener('pagehide',()=>{if(window.POKESIFT_RUNTIME?.cloud)PokeSiftStartup.pending();});
+  window.addEventListener('pokesift:unauthorized',()=>{if(window.POKESIFT_RUNTIME?.cloud){PokeSiftCloud.stop();if(!starting)signedOut('Your session ended. Sign in again to continue. Local pending changes are retained for this account.');}});
   return {get user(){return user;},refresh,show};
 })();

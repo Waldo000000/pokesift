@@ -7,7 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <title>PokéSift · Your collection</title>
   <link rel="stylesheet" href="style.css"><link rel="stylesheet" href="card-effects.css">
-  <script src="runtime.js"></script>
+  <script src="runtime.js" defer></script>
   <script src="cloud-sync.js" defer></script><script src="account.js" defer></script><script src="auth.js" defer></script>
   <link rel="stylesheet" href="cloud.css">
   <script src="photo-store.js" defer></script>
@@ -21,13 +21,19 @@
     <span class="local-pill"><span aria-hidden="true">●</span> ON THIS DEVICE</span>
   </header>
   <aside class="prototype-links" aria-label="Design prototypes"><span>Try the design playground <small>Sample cards</small></span><a href="/concepts/binder.html">Binder demo ↗</a><a href="/concepts/desk.html">Fan demo ↗</a><a href="/concepts/zoo.html">Pokémon Zoo demo ↗</a><a href="/concepts/card-study.html">Hold a card ↗</a></aside>
-  <section id="pairing-view" class="pairing-view" aria-labelledby="pairing-title">
+  <section id="startup-view" class="startup-view" aria-labelledby="startup-title" aria-busy="true">
+    <p class="eyebrow">YOUR POKÉSIFT COLLECTION</p><h1 id="startup-title">A moment for your cards.</h1>
+    <p id="startup-status" role="status" aria-live="polite">Opening PokéSift…</p>
+    <button id="retry-startup" class="primary" hidden>Try again</button>
+    <noscript><p>Please enable JavaScript to open your collection.</p></noscript>
+  </section>
+  <section id="pairing-view" class="pairing-view" aria-labelledby="pairing-title" hidden>
     <p class="eyebrow">YOUR COLLECTION, ONE SCAN AWAY</p><h1 id="pairing-title">Welcome to PokéSift.</h1>
     <p id="pairing-status" role="status" aria-live="polite">Checking this device…</p>
     <p class="fineprint">New device? Scan a fresh invite QR from a paired device or ask the app owner for one.<br>Already paired devices stay signed in for 30 days. No password popup.</p>
     <button id="check-session" class="primary">Check again</button>
   </section>
-  <main id="collection-view">
+  <main id="collection-view" hidden>
     <section class="collection-heading">
       <div><p class="eyebrow">A LITTLE ORDER. A LOT OF DISCOVERY.</p><h1>Your collection<span>.</span></h1><p class="intro">One card at a time. All in one place.</p></div>
       <button id="open-camera" class="primary"><span aria-hidden="true">＋</span> Add cards</button>

@@ -122,6 +122,15 @@ window.PokeSiftCloud=(()=>{
       state.base.layout=inventory.layout;state.snapshot.collectionViews=copy(inventory.layout.document);
     }
   }
+  async function loadInitial(){
+    await writes;
+    if(stopped||blocked||!user)throw Error('Your collection is not ready. Please try again.');
+    // A new device must know whether the server collection is empty before
+    // showing an empty-state screen. This only pulls data; it never scans.
+    const load=async()=>{await pull();await persist();};
+    if(navigator.locks)await navigator.locks.request('pokesift-cloud-network:'+user.id,load);else await load();
+    return copy(state.snapshot);
+  }
   async function work(){
     await writes;if(writingFailed||blocked||stopped||busy())return;
     // Always settle an uncertain idempotent write before generating a later one.
@@ -227,6 +236,7 @@ window.PokeSiftCloud=(()=>{
     const url=URL.createObjectURL(new Blob([JSON.stringify(backup)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='pokesift-device-before-cloud.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
   async function open(account){
+    channel?.close();channel=null;db?.close();
     user=account;db=await openDB();state=await read()||blank();localRevision=state.localRevision||0;persistedFingerprint=stable({...state,localRevision:undefined});stopped=false;blocked=false;
     for(const e of state.snapshot.entries)if(['preparing','queued','scanning'].includes(e.status)){e.status='interrupted';e.message='This page closed before the scan completed. A scan may have been used. No retry was made.';}
     const photoHash=id=>{for(const e of state.snapshot.entries){const record=records(e).find(r=>r.id===id);if(record)return record.scanPhoto?.sha256;}return null;};
@@ -249,7 +259,7 @@ window.PokeSiftCloud=(()=>{
     await PokeSiftPhotos.clearScope();channel?.close();
   }
   async function recover(id){const row=state.base.cards[id]||await api('card?id='+encodeURIComponent(id));const result=await api('card',{id,baseRevision:row.revision,operationId:crypto.randomUUID(),action:'restore'});state.base.cards[id]={...row,revision:result.revision,deletedAt:null};replaceLocal(id,row.document);await persist();display();schedule();}
-  return {open,start,save,sync,migrateLegacy,backupLegacy,clear,recover,api,merge,
+  return {open,loadInitial,start,save,sync,migrateLegacy,backupLegacy,clear,recover,api,merge,
     snapshot:()=>copy(state?.snapshot),legacy,hasLegacy:()=>Boolean(legacy()?.entries.length&&!state?.legacyImported),
     pending:()=>pendingWrites>0||writingFailed||dirty(),durable:()=>pendingWrites===0&&!writingFailed,
     deleted:()=>Object.values(state?.base.cards||{}).filter(c=>c.deletedAt&&c.deletedAt>Date.now()/1000-30*86400&&!c.document?.purged),

@@ -22,6 +22,8 @@ quota. Owner tools approve requests by email, issue single-use invitations,
 adjust public pools and pacing, and explicitly pause provider calls. Existing
 provider credits are used when scanning is enabled; provider-side limits still apply.
 
+Returning signed-in users see a neutral loading screen until their verified account cache is ready. A device without cached cards fetches the initial cloud collection before showing an empty state. Connection and cache-loading failures offer a retry; only an expired or missing session shows sign-in. Returning from the browser page cache rechecks the session without an automatic Google redirect.
+
 ## Using the app
 
 1. Scan a pairing QR to remember your device for 30 days. A paired device can use **Add another device** to create another ten-minute invite.
