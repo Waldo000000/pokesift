@@ -7,7 +7,7 @@ The hosted integration must be smoke-tested before enabling public accounts.
 """
 import json
 from http.cookies import SimpleCookie, CookieError
-from urllib.parse import urlsplit, urlencode
+from urllib.parse import urlsplit, urlencode, parse_qs
 import urllib.request
 import urllib.error
 import ssl
@@ -56,7 +56,13 @@ class NeonAuth:
     def start(self,origin):
         data,cookies=self.call('sign-in/social',origin,{'provider':'google','callbackURL':origin+'/auth/callback','errorCallbackURL':origin+'/?signin=failed','disableRedirect':True})
         url=data.get('url','');parsed=urlsplit(url)
-        if parsed.scheme!='https' or parsed.hostname!='accounts.google.com' or parsed.username or parsed.password:
+        # Managed Auth may first send the browser to its own init endpoint to
+        # establish OAuth state cookies before redirecting to Google.
+        base=urlsplit(self.base)
+        init_query=parse_qs(parsed.query,keep_blank_values=True)
+        managed_init=(parsed.netloc==base.netloc and parsed.path==base.path+'/sign-in/social/init'
+            and set(init_query)=={'token'} and len(init_query['token'])==1 and bool(init_query['token'][0]))
+        if parsed.scheme!='https' or parsed.username or parsed.password or parsed.fragment or not (parsed.hostname=='accounts.google.com' or managed_init):
             raise CloudError(502,'Sign-in returned an unexpected destination.')
         challenge=[]
         for line in cookies:

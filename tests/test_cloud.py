@@ -162,4 +162,18 @@ class CloudTests(unittest.TestCase):
         self.assert_error(401,lambda:auth.complete('https://app.example','verifier',''))
         bad=NeonAuth(auth.base,lambda *_:(200,b'{"url":"https://evil.example"}',[]));self.assert_error(502,lambda:bad.start('https://app.example'))
 
+    def test_neon_proxy_accepts_only_configured_social_init_endpoint(self):
+        base='https://example.neonauth.neon.tech/neondb/auth'
+        init=base+'/sign-in/social/init?token=one-time-token'
+        def adapter(destination):
+            return NeonAuth(base,lambda *_:(200,json.dumps({'url':destination}).encode(),
+                [next(iter(CHALLENGES))+'=opaque; Secure; HttpOnly']))
+        self.assertEqual(adapter(init).start('https://app.example')[0],init)
+        for destination in [init.replace('example.neonauth.neon.tech','evil.example'),
+            init.replace('/neondb/','/another-db/'),init.replace('/init?','/other?'),
+            init.replace('https:','http:'),init+'&token=second',init.replace('one-time-token',''),
+            init+'&redirect=https://evil.example',init+'#fragment']:
+            with self.subTest(destination=destination):
+                self.assert_error(502,lambda:adapter(destination).start('https://app.example'))
+
 if __name__=='__main__':unittest.main()
