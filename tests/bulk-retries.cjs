@@ -17,7 +17,7 @@ const matched={data:{status:'matched',read:{name:'Recovered card'},candidates:[]
       await c.addCookies([{name:'pokesift',value:cookie,url:base,httpOnly:true,sameSite:'Strict'}]);
       await c.route('**/api/exchange-rates',r=>r.fulfill({json:{base:'AUD',date:'2026-10-31',rates:{AUD:1,USD:.5},source:'Fixture'}}));
       for(const route of ['**/api/identify','**/api/enrich','**/api/pikaqian-prices'])await c.route(route,r=>{unexpected++;return r.abort();});
-      const p=await c.newPage();p.on('pageerror',e=>errors.push(e.message));await p.goto(base);
+      const p=await c.newPage();p.on('pageerror',e=>errors.push(e.message));await p.goto(base);await p.locator('#collection-view').waitFor();
       await p.evaluate(async({count,image,missing,identified})=>{
         entries=[];
         for(let n=0;n<count;n++){
@@ -60,7 +60,10 @@ const matched={data:{status:'matched',read:{name:'Recovered card'},candidates:[]
     await start(stopped.p);await stopped.p.waitForFunction(()=>entries.some(e=>e.status==='scanning'));while(!release)await new Promise(r=>setTimeout(r,10));
     await stopped.p.locator('#stop-scan-retries').click();release();await finished(stopped.p);
     assert.equal(stopCalls,1);assert.match(await stopped.p.locator('#bulk-retry-status').textContent(),/Stopped.*1 of 4/);
-    await stopped.p.reload();assert.equal(stopCalls,1);assert.equal(await stopped.p.evaluate(()=>entries.filter(e=>failedStates.has(e.status)).length),3);await stopped.c.close();
+    // Reload finishes before the asynchronous session check necessarily does.
+    // Assert restoration after the collection is ready, even with slow auth.
+    await stopped.c.route('**/api/session',async r=>{await new Promise(resolve=>setTimeout(resolve,250));return r.continue();});
+    await stopped.p.reload();await stopped.p.locator('#collection-view').waitFor();assert.equal(stopCalls,1);assert.equal(await stopped.p.evaluate(()=>entries.filter(e=>failedStates.has(e.status)).length),3);await stopped.c.close();
     // Provider/account failures and lost responses stop after the first attempt.
     for(const mode of ['quota','network']){
       const test=await setup(3);let attempts=0;
