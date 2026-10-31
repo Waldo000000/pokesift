@@ -13,7 +13,8 @@
     "test:retries": "node tests/bulk-retries.cjs",
     "test:chinese-images": "node tests/chinese-images.cjs",
     "test:binder": "node tests/binder-turns.cjs",
-    "test:startup": "node tests/startup.cjs"
+    "test:startup": "node tests/startup.cjs",
+    "test:catalog-review": "node tests/catalog-review.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

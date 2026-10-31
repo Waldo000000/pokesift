@@ -19,7 +19,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   const options={viewport:{width:390,height:844},permissions:['camera']};
   let usdRate=2/3;
   const cookie = execFileSync('python3',['-c',`from auth import mint_token; print(mint_token('${password}', 'session', 'http://127.0.0.1:${port}'))`],{cwd:root}).toString().trim();
-  const newContext=async()=>{const c=await browser.newContext(options);await c.addCookies([{name:'pokesift',value:cookie,url:`http://127.0.0.1:${port}`,httpOnly:true,sameSite:'Strict'}]);await c.route('**/api/exchange-rates',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({base:'AUD',date:'2026-10-26',rates:{USD:usdRate,EUR:.6,AUD:1},source:'Test ECB fixture',fetchedAt:new Date().toISOString()})}));return c;};
+  const newContext=async()=>{const c=await browser.newContext(options);await c.addCookies([{name:'pokesift',value:cookie,url:`http://127.0.0.1:${port}`,httpOnly:true,sameSite:'Strict'}]);await c.route('**/api/exchange-rates',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({base:'AUD',date:'2026-10-26',rates:{USD:usdRate,EUR:.6,AUD:1},source:'Test ECB fixture',fetchedAt:new Date().toISOString()})}));await c.route('**/api/card-image?*',r=>r.fulfill({contentType:'image/png',body:photo.buffer}));return c;};
   const context=await newContext(), page=await context.newPage();
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   let count=0,inflight=0,maxInflight=0;
@@ -222,6 +222,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await noRates.close();
   const invite = execFileSync('python3',['-c',`from auth import mint_token; print(mint_token('${password}', 'invite', 'http://127.0.0.1:${port}'))`],{cwd:root}).toString().trim();
   const pairing=await browser.newContext(options), pp=await pairing.newPage();
+  await pairing.route('**/api/card-image?*',r=>r.fulfill({contentType:'image/png',body:photo.buffer}));
   await pairing.route('**/api/exchange-rates',r=>r.fulfill({status:503,body:'{}'}));
   await pp.goto(`http://127.0.0.1:${port}/#invite=${invite}`);
   await waitFor(()=>pp.locator('body').getAttribute('data-auth').then(x=>x==='signed-in'));

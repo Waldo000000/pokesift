@@ -74,7 +74,7 @@ function load() {
     storageWarning('Saved collection could not be opened. Existing storage has been left untouched. New cards stay in memory; export them before leaving.');
   }
 }
-const cardOf = e => e.catalogMatch?.card || e.result?.data?.candidates?.[0];
+const cardOf = e => e.catalogMatch?.card || e.identificationMatch?.card || e.result?.data?.candidates?.[0];
 const readOf = e => e.result?.data?.read || {};
 function identityOf(e) {
   const card = cardOf(e) || {}, read = readOf(e);
@@ -229,8 +229,13 @@ function renderDetail() {
   $('detail-title').textContent = titleOf(e);
   $('detail-set').textContent = identityOf(e).set || 'YOUR CAPTURE';
   $('detail-meta').textContent = [identityOf(e).number,card?.rarity,card?.suggested_printing || readOf(e).finish,readOf(e).stamp,languageOf(e)].filter(Boolean).join(' · ');
-  const message = e.status === 'unsupported' ? 'This printing is outside the current pricing catalog. Your photo and the details read from it are saved. Its value is unknown; we haven’t substituted a price from another language.' : e.message || (e.catalogMatch ? '' : payload?.message) || (busyStates.has(e.status) ? 'Your result will appear here. Feel free to keep adding cards.' : e.status !== 'matched' ? 'This identification is not confirmed. Review the candidates below before using a price.' : '');
+  const message = e.status === 'unsupported' ? 'This printing is outside the current pricing catalog. Your photo and the details read from it are saved. Its value is unknown; we haven’t substituted a price from another language.' : e.message || (e.catalogMatch||e.identificationMatch ? '' : payload?.message) || (busyStates.has(e.status) ? 'Your result will appear here. Feel free to keep adding cards.' : e.status !== 'matched' ? 'This identification is not confirmed. Review the candidates below before using a price.' : '');
   $('detail-message').textContent = message; $('detail-message').hidden = !message;
+  renderIdentificationReview(e);
+  const imageState=canonicalImageRequests.get(e),missingImage=e.status==='matched'&&!e.canonicalImage&&Boolean(canonicalImageURL(e));
+  $('retry-catalog-image').hidden=!missingImage;$('retry-catalog-image').disabled=readOnlyStorage||Boolean(imageState?.promise);
+  $('retry-catalog-image').textContent=imageState?.promise?'Loading catalog image…':'Retry catalog image';
+  $('catalog-image-status').hidden=!missingImage;$('catalog-image-status').textContent=imageState?.promise?'Loading the saved printing’s artwork. No photo scan is used.':'The catalog image could not be loaded. Your photo and confirmed printing are saved; retrying the image uses no scans.';
   const prices = $('detail-prices'); prices.replaceChildren();
   const rows = e.status === 'matched' && Array.isArray(card?.prices) ? card.prices : [];
   const choices = availablePrices(e), picker = $('valuation-choice');
@@ -260,7 +265,7 @@ function renderDetail() {
   renderEnrichment(e);
   $('detail-warnings').replaceChildren();
   for (const warning of Array.isArray(payload?.warnings) ? payload.warnings : []) $('detail-warnings').append(element('p','notice',String(warning)));
-  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,scanHistory:e.scanHistory || [],scanAttempts:e.scanAttempts || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
+  $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,identificationMatch:e.identificationMatch || null,scanHistory:e.scanHistory || [],scanAttempts:e.scanAttempts || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
   $('raw-details').hidden = busyStates.has(e.status);
   renderRemoval(e);
   window.PokeSiftCardDetails?.render(e);
@@ -271,7 +276,8 @@ $('valuation-choice').onchange = event => {
   else delete e.selectedPriceKey;
   save(); render();
 };
-function openDetail(id) { pendingRemovalId=null;focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) $('detail-view').showModal();const e=entries.find(e=>e.id===id);if(e?.status==='matched'&&e.catalogMatch&&!e.canonicalImage)cacheCanonicalImage(e); }
+function openDetail(id) { pendingRemovalId=null;focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) $('detail-view').showModal();const e=entries.find(e=>e.id===id);if(e?.status==='matched'&&!e.canonicalImage)cacheCanonicalImage(e); }
+$('retry-catalog-image').onclick=()=>{const e=entries.find(e=>e.id===focusedId);if(e)cacheCanonicalImage(e,{force:true});};
 $('toggle-photo').onclick = () => { showCapturedPhoto = !showCapturedPhoto; renderDetail(); };
 $('close-detail').onclick = () => $('detail-view').close();
 $('detail-view').addEventListener('close',() => { focusedId = null;pendingRemovalId=null; });
@@ -341,12 +347,12 @@ function addFiles(files, capture=null) {
           e=entries.find(item=>item.id===replacingId);
           if(!e || (e.status!=='retake'&&!failedStates.has(e.status)))throw new Error('This card changed. Open it again before retaking.');
           retainHistoricalEvidence(e);
-          const oldPhoto=await PokeSiftPhotos.get(e.id),history={id:crypto.randomUUID(),thumbnail:e.thumbnail,capturedAt:e.lastCapturedAt || e.createdAt,result:structuredClone(e.result || null),capture:e.capture || null};
+          const oldPhoto=await PokeSiftPhotos.get(e.id),history={id:crypto.randomUUID(),thumbnail:e.thumbnail,capturedAt:e.lastCapturedAt || e.createdAt,result:structuredClone(e.result || null),...(e.identificationMatch?{identificationMatch:structuredClone(e.identificationMatch)}:{}),capture:e.capture || null};
           if(oldPhoto)history.scanPhoto={id:history.id,mime:oldPhoto.type,bytes:oldPhoto.size,quality:'exact_upload',persisted:await PokeSiftPhotos.put(history.id,oldPhoto)};
           else if(e.scanPhoto)history.scanPhoto={...e.scanPhoto,id:history.id,persisted:false};
           e.scanHistory=[...(e.scanHistory || []),history];e.lastCapturedAt=new Date().toISOString();
           e.status='queued';e.thumbnail=thumbnail;e.message='';
-          delete e.result;delete e.catalogMatch;delete e.enrichment;delete e.priceCheck;delete e.selectedPriceKey;delete e.canonicalImage;
+          delete e.result;delete e.catalogMatch;delete e.identificationMatch;delete e.enrichment;delete e.priceCheck;delete e.selectedPriceKey;delete e.canonicalImage;
         } else e={id:crypto.randomUUID(),createdAt:new Date().toISOString(),status:'queued',thumbnail};
         const persisted = await PokeSiftPhotos.put(e.id,blob);
         e.scanPhoto = {id:e.id,mime:blob.type,bytes:blob.size,quality:'exact_upload',persisted,...(window.POKESIFT_RUNTIME?.cloud?{sha256:await PokeSiftPhotos.digest(blob)}:{})};
@@ -391,7 +397,7 @@ async function retryScan(id,batch=null) {
     if(readOnlyStorage||entries.find(entry=>entry.id===id)!==e)throw Error('This card changed. Reload before retrying.');
     if(batch?.stop){restore();return {cancelled:true};}
     const requestId=crypto.randomUUID(),retryOf=previous.scanRequestId||requestId;
-    e.scanAttempts=[...(e.scanAttempts||[]),{requestId:previous.scanRequestId||null,status:previous.status,message:previous.message||'',result:structuredClone(previous.result||null),retriedAt:new Date().toISOString()}];
+    e.scanAttempts=[...(e.scanAttempts||[]),{requestId:previous.scanRequestId||null,status:previous.status,message:previous.message||'',result:structuredClone(previous.result||null),...(previous.identificationMatch?{identificationMatch:structuredClone(previous.identificationMatch)}:{}),retriedAt:new Date().toISOString()}];
     e.status='queued';e.message='';e.scanRequestId=requestId;
     if(!save())throw Error('Could not save this retry. Your card and photo have been kept.');
     const job={id,blob,requestId,retryOf};completion=new Promise(resolve=>{job.complete=resolve;});
@@ -414,19 +420,53 @@ function pump() {
   }
 }
 const canonicalImageRequests=new WeakMap();
+const identificationPreviews=new WeakMap();
+const identificationKey=card=>JSON.stringify([card?.card_id,card?.tcgplayer_id,card?.name,card?.number,card?.set?.name,card?.suggested_printing]);
+function tcgImageURL(card){const id=card?.tcgplayer_id;return /^[1-9][0-9]{0,9}$/.test(String(id||''))?'/api/card-image?id='+encodeURIComponent(id):null;}
+function identificationCandidates(e){
+  if(e.catalogMatch||!(e.status==='matched'&&e.identificationMatch)&&!['ambiguous','retake','not_found'].includes(e.status))return [];
+  const language=String(readOf(e).language||'').toLowerCase();
+  if(!['','en','eng','english','ja','jp','japanese'].includes(language))return [];
+  return Array.isArray(e.result?.data?.candidates)?e.result.data.candidates.filter(c=>c&&typeof c==='object'&&!Array.isArray(c)).slice(0,20):[];
+}
+function identificationPreview(e,candidate){
+  const url=tcgImageURL(candidate);if(!url)return Promise.resolve(null);
+  const old=identificationPreviews.get(candidate);if(old?.image)return Promise.resolve(old.image);if(old?.promise)return old.promise;if(old&&Date.now()-old.at<60000)return Promise.resolve(null);
+  const state={at:Date.now()},controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);identificationPreviews.set(candidate,state);
+  state.promise=(async()=>{try{const response=await fetch(url,{credentials:'same-origin',redirect:'error',signal:controller.signal});if(!response.ok)return null;const {thumbnail}=await preparePhoto(await response.blob());if(!entries.includes(e)||!e.result?.data?.candidates?.includes(candidate))return null;state.image=thumbnail;return thumbnail;}catch{return null;}finally{clearTimeout(timeout);state.promise=null;}})();return state.promise;
+}
+function applyIdentificationMatch(e,candidate){
+  if(readOnlyStorage||!entries.includes(e)||!identificationCandidates(e).includes(candidate))return;
+  e.identificationMatch={card:structuredClone(candidate),confirmedBy:'user',confirmedAt:new Date().toISOString()};e.status='matched';e.message='';delete e.selectedPriceKey;
+  const image=identificationPreviews.get(candidate)?.image;if(image)e.canonicalImage=image;else delete e.canonicalImage;
+  e.currencyAssumed=Boolean(candidate.prices?.some(p=>p.currency_assumed));showCapturedPhoto=false;
+  $('identification-review').open=false;save();render();if(!e.canonicalImage)cacheCanonicalImage(e);
+}
+function renderIdentificationReview(e){
+  const review=$('identification-review'),candidates=identificationCandidates(e);review.hidden=!candidates.length;if(!candidates.length)return;
+  const confirmed=String(Boolean(e.identificationMatch));
+  if(review.dataset.entry!==e.id||review.dataset.confirmed!==confirmed){review.dataset.entry=e.id;review.dataset.confirmed=confirmed;review.open=!e.identificationMatch;}
+  $('identification-review-title').textContent=e.identificationMatch?'Selected printing · change match':'Choose your printing';
+  const boxes=$('identification-candidates');boxes.replaceChildren();
+  for(const card of candidates){
+    const box=element('div','catalog-candidate'),url=tcgImageURL(card),image=element('img','catalog-preview');image.alt='Possible '+(card.name||'card')+' printing — not yet confirmed';image.hidden=true;
+    box.append(image,element('strong','',card.name||'Possible printing'),element('p','',[card.set?.name,card.number,card.rarity,card.suggested_printing].filter(Boolean).join(' · ')));
+    const status=element('p','fineprint',url?'Loading preview…':'No catalog image is available for this candidate.');box.append(status);
+    if(url)identificationPreview(e,card).then(preview=>{if(!image.isConnected)return;if(preview){image.src=preview;image.hidden=false;status.textContent='Catalog preview · TCGPlayer';}else status.textContent='Preview unavailable. Confirm the set and number before choosing.';});
+    const selected=e.identificationMatch&&identificationKey(e.identificationMatch.card)===identificationKey(card),choose=element('button','primary catalog-confirm',selected?'Selected printing':'This is my printing');choose.type='button';choose.disabled=readOnlyStorage||Boolean(selected);choose.onclick=()=>applyIdentificationMatch(e,card);box.append(choose);boxes.append(box);
+  }
+}
 function canonicalImageURL(e) {
-  const card = cardOf(e), id = card?.tcgplayer_id;
   const chinese = e.catalogMatch?.card?.provider_id;
   if (busyStates.has(e.status)||(e.status !== 'matched'&&!chinese)) return null;
-  if (!chinese && !/^[1-9][0-9]{0,9}$/.test(String(id || ''))) return null;
-  return chinese ? '/api/pikaqian-image?id='+encodeURIComponent(chinese) : '/api/card-image?id='+encodeURIComponent(id);
+  return chinese ? '/api/pikaqian-image?id='+encodeURIComponent(chinese) : tcgImageURL(cardOf(e));
 }
 function cacheCanonicalImage(e,{force=false}={}) {
   const url=canonicalImageURL(e);if(!url||readOnlyStorage)return Promise.resolve(false);
   const previous=canonicalImageRequests.get(e);
   if(previous?.url===url){if(previous.promise)return previous.promise;if(!force&&previous.failed&&Date.now()-previous.at<60000)return Promise.resolve(false);}
   const state={url,at:Date.now(),promise:null};canonicalImageRequests.set(e,state);
-  state.promise=downloadCanonicalImage(e,url).then(success=>{state.failed=!success;return success;}).finally(()=>{state.promise=null;});return state.promise;
+  state.promise=downloadCanonicalImage(e,url).then(success=>{state.failed=!success;return success;}).finally(()=>{state.promise=null;if(canonicalImageRequests.get(e)===state&&focusedId===e.id&&$('detail-view').open)renderDetail();});if(focusedId===e.id&&$('detail-view').open)renderDetail();return state.promise;
 }
 async function downloadCanonicalImage(e,url) {
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(),20000);
@@ -466,6 +506,7 @@ async function runJob(job) {
     if (!response.ok) throw new Error(result?.error?.message || `The server returned HTTP ${response.status}. No retry was made.`);
     if (!['matched','ambiguous','retake','not_found','unsupported'].includes(result?.data?.status)) throw new Error('The provider returned an unexpected result. A scan may have been used. No retry was made.');
     e.providerObservations = [...(e.providerObservations || []),{provider:'tcgapi',operation:'identify',receivedAt:new Date().toISOString(),snapshotKind:'provider_response',parameters:{game:'pokemon',include:'prices'},response:structuredClone(result)}];
+    if(e.identificationMatch){delete e.identificationMatch;delete e.canonicalImage;}
     e.result = normalizeResult(result); e.currencyAssumed = Boolean(e.result.data.candidates?.some(c => c.prices?.some(p => p.currency_assumed))); e.status = result.data.status;
     e.message='';
     showLatestFind(e);
@@ -484,6 +525,7 @@ function canEnrich(e) {
   return Boolean((e.catalogMatch || ['unsupported','not_found','ambiguous'].includes(e.status)) && read.name && /^\d{1,4}(?:\/\d{1,4})?$/.test(read.number || '') && (!read.game || read.game === 'pokemon'));
 }
 function applyCatalogMatch(e, candidate, confirmedBy, loadImage=true) {
+  delete e.identificationMatch;
   e.catalogMatch = {card:candidate.card,confirmedBy,confirmedAt:new Date().toISOString()};
   e.status = 'matched'; e.message = ''; e.currencyAssumed = false; delete e.selectedPriceKey;
   if(candidate.previewImage)e.canonicalImage=candidate.previewImage;else delete e.canonicalImage;
@@ -493,6 +535,7 @@ function applyCatalogMatch(e, candidate, confirmedBy, loadImage=true) {
 function storeCatalogResult(e, result, loadImages=true) {
   e.enrichment = {...structuredClone(result),checkedAt:new Date().toISOString()};
   e.providerObservations = [...(e.providerObservations || []),...result.candidates.map(c=>structuredClone(c.observation))];
+  if(e.identificationMatch)return;
   const previous = e.enrichment.candidates.find(c=>c.card.provider_id===e.catalogMatch?.card.provider_id);
   if (previous) {
     e.catalogMatch.card = previous.card; e.status='matched';e.message='';e.currencyAssumed=false; e.enrichment.status='matched';
@@ -732,6 +775,7 @@ function catalogLink(e) {
   link.href='https://pikaqian.com/cards/'+encodeURIComponent(e.catalogMatch.card.provider_id);link.target='_blank';link.rel='noopener noreferrer';return link;
 }
 function renderEnrichment(e) {
+  $('catalog-enrichment').hidden=Boolean(e.identificationMatch);if(e.identificationMatch)return;
   const button=$('check-catalog'), state=e.enrichment;
   button.hidden=!canEnrich(e);button.disabled=enriching.has(e.id) || priceBatch.running;
   button.textContent=enriching.has(e.id)?'Checking Chinese catalog…':e.catalogMatch?'Refresh Chinese card details':'Check Chinese catalog';
@@ -898,6 +942,7 @@ function validateBackup(value) {
   const imageOK = image => typeof image === 'string' && image.length <= 2*1024*1024 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image);
   for (const e of value.entries) {
     if (!e || typeof e.id !== 'string' || !e.id.length || e.id.length > 100 || ['__proto__','constructor','prototype'].includes(e.id) || !statuses.has(e.status) || !imageOK(e.thumbnail) || (e.canonicalImage && !imageOK(e.canonicalImage))) throw new Error('This backup contains an invalid card entry. Nothing was imported.');
+    if(e.identificationMatch){const m=e.identificationMatch,c=m.card;if(m.confirmedBy!=='user'||!c||typeof c!=='object'||Array.isArray(c)||(c.prices!==undefined&&(!Array.isArray(c.prices)||c.prices.some(p=>!p||typeof p!=='object'||Array.isArray(p)))))throw new Error('This backup contains an invalid printing selection. Nothing was imported.');}
     if (e.result) {
       const candidates=e.result.data?.candidates ?? [];
       if (!e.result.data || typeof e.result.data !== 'object' || !Array.isArray(candidates) || candidates.length > 20 || candidates.some(c=>!c || typeof c !== 'object' || Array.isArray(c) || (c.prices !== undefined && (!Array.isArray(c.prices) || c.prices.some(p=>!p || typeof p !== 'object' || Array.isArray(p)))))) throw new Error('This backup contains invalid card results. Nothing was imported.');

@@ -24,6 +24,8 @@ provider credits are used when scanning is enabled; provider-side limits still a
 
 Returning signed-in users see a neutral loading screen until their verified account cache is ready. A device without cached cards fetches the initial cloud collection before showing an empty state. Connection and cache-loading failures offer a retry; only an expired or missing session shows sign-in. Returning from the browser page cache rechecks the session without an automatic Google redirect.
 
+Cards marked **Check the match** now show saved catalog candidates with image previews under **Choose your printing**. Select **This is my printing** to save that candidate and its artwork; the original photo and provider response remain intact. Existing confirmed English cards retry missing images when opened and provide **Retry catalog image** after a download failure. These image reads and confirmations use no photo scans, and the selected printing survives backups and cloud sync.
+
 ## Using the app
 
 1. Scan a pairing QR to remember your device for 30 days. A paired device can use **Add another device** to create another ten-minute invite.
