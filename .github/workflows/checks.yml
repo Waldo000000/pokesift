@@ -36,6 +36,7 @@ jobs:
       - run: npm run test:browser
       - run: npm run test:concepts
       - run: npm run test:collection
+      - run: npm run test:binder
       - run: npm run test:foil
       - run: npm run test:motion
       - run: npm run test:cloud

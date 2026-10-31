@@ -126,10 +126,11 @@
       const sleeve=document.createElement('div');sleeve.className='sleeve-front';sleeve.setAttribute('aria-hidden','true');pocket.append(sleeve);grid.append(pocket);
     });sheet.append(grid);
     const number=document.createElement('span');number.className='leaf-number';number.textContent=String(pageNumber+1).padStart(2,'0');sheet.append(number);
-    if(corners){const directions=spreadMedia.matches?[side==='right'?1:-1]:[-1,1];for(const direction of directions)for(const corner of ['top','bottom']){const button=document.createElement('button');button.className='page-corner corner-'+corner+(direction===1?' corner-right':' corner-left');button.dataset.turnDirection=direction;button.dataset.turnCorner=corner;button.disabled=page+direction*pageStep()<0||page+direction*pageStep()>=layout.slots.length/9;button.setAttribute('aria-label',`Turn ${direction===1?'next':'previous'} page from ${corner} corner`);button.innerHTML='<span aria-hidden="true"></span>';button.onclick=e=>{if(e.detail===0)turnPage(direction,corner);};sheet.append(button);}}
+    if(corners){const directions=spreadMedia.matches?[side==='right'?1:-1]:[-1,1];for(const direction of directions)for(const corner of ['top','bottom']){const button=document.createElement('button');button.className='page-corner corner-'+corner+(direction===1?' corner-right':' corner-left');button.dataset.turnDirection=direction;button.dataset.turnCorner=corner;button.disabled=page+direction*pageStep()<0||page+direction*pageStep()>=layout.slots.length/9;button.setAttribute('aria-label',`Turn ${direction===1?'next':'previous'} page from ${corner} corner`);button.onclick=e=>{if(e.detail===0)turnPage(direction,corner);};sheet.append(button);}}
     return sheet;
   }
-  function renderBook(){const spread=$('binder-spread');book.classList.toggle('two-page',spreadMedia.matches);spread.replaceChildren();spread.dataset.startPage=page;for(let i=0;i<pageStep();i++)spread.append(leaf(page+i,{side:spreadMedia.matches&&i===0?'left':'right'}));$('page-label').textContent=spreadMedia.matches?`PAGES ${page+1}–${page+2} / ${layout.slots.length/9}`:`PAGE ${page+1} / ${layout.slots.length/9}`;$('prev-page').disabled=page===0;$('next-page').disabled=page+pageStep()>=layout.slots.length/9;}
+  function pageLeaves(start){return Array.from({length:pageStep()},(_,i)=>leaf(start+i,{side:spreadMedia.matches&&i===0?'left':'right'}));}
+  function renderBook(leaves=pageLeaves(page)){const spread=$('binder-spread');book.classList.toggle('two-page',spreadMedia.matches);spread.replaceChildren(...leaves);spread.dataset.startPage=page;spread.querySelectorAll('.page-corner').forEach(b=>{const next=page+Number(b.dataset.turnDirection)*pageStep();b.disabled=next<0||next>=layout.slots.length/9;});$('page-label').textContent=spreadMedia.matches?`PAGES ${page+1}–${page+2} / ${layout.slots.length/9}`:`PAGE ${page+1} / ${layout.slots.length/9}`;$('prev-page').disabled=page===0;$('next-page').disabled=page+pageStep()>=layout.slots.length/9;}
   renderCards=function(){
     if(theme==='desk'){
       // First in the sort order belongs on top: the rightmost physical card.
@@ -145,6 +146,17 @@
 
   // Three rigid panels hinge at the pocket gutters. Cards stay flat while the
   // plastic between their columns folds; the final pose matches the resting leaf.
+  function turnFace(face,column,left,width,height){
+    const content=face.cloneNode(false),grid=face.querySelector('.pocket-grid').cloneNode(false);
+    // Each panel carries only its own three pockets. Empty grid placeholders
+    // preserve the exact page geometry without painting off-panel card copies.
+    [...face.querySelector('.pocket-grid').children].forEach((pocket,i)=>grid.append(i%3===column?pocket.cloneNode(true):document.createElement('div')));
+    content.append(grid,face.querySelector('.leaf-number').cloneNode(true));
+    Object.assign(content.style,{left:left+'px',width:width+'px',height:height+'px'});
+    content.querySelectorAll('button').forEach(b=>b.tabIndex=-1);
+    content.querySelectorAll('img').forEach(img=>{img.loading='eager';img.decoding='sync';});return content;
+  }
+  function readyPageImages(leaves){return Promise.allSettled(leaves.flatMap(n=>[...n.querySelectorAll('img')]).map(img=>{img.loading='eager';img.decoding='sync';return img.decode?.();}));}
   function startTurn(direction,corner='bottom') {
     if(turn||drag)return false;const target=page+direction*pageStep();if(target<0||target>=layout.slots.length/9)return false;
     // A single-page binder stays hinged at the left spine in both directions.
@@ -152,28 +164,38 @@
     const reverseTurn=!spreadMedia.matches&&direction===-1,foldDirection=reverseTurn?1:direction;
     const spread=$('binder-spread'),source=direction===1?spread.lastElementChild:spread.firstElementChild,rect=source.getBoundingClientRect(),bounds=book.getBoundingClientRect(),gap=spreadMedia.matches?parseFloat(getComputedStyle(spread).gap):0;
     const sheet=document.createElement('div');sheet.className='turning-sheet curved-sheet';sheet.setAttribute('aria-hidden','true');sheet.inert=true;Object.assign(sheet.style,{left:rect.left-bounds.left+'px',top:rect.top-bounds.top+'px',width:rect.width+'px',height:rect.height+'px'});
-    const front=reverseTurn?leaf(target,{corners:false}):source.cloneNode(true),back=reverseTurn?source.cloneNode(true):leaf(direction===1?target:target+pageStep()-1,{side:direction===1?'left':'right',corners:false});
-    for(const face of [front,back]){face.querySelectorAll('button').forEach(b=>b.tabIndex=-1);face.querySelectorAll('.page-corner').forEach(b=>b.remove());Object.assign(face.style,{width:rect.width+'px',height:rect.height+'px'});}
+    const resting=[...spread.children],destination=pageLeaves(target),front=reverseTurn?destination[0]:source,back=reverseTurn?source:destination[direction===1?0:destination.length-1];
+    const ready=readyPageImages(destination);
     const pockets=[...source.querySelectorAll('.physical-pocket')].slice(0,3).map(n=>n.getBoundingClientRect());
     const cuts=[0,(pockets[0].right+pockets[1].left)/2-rect.left,(pockets[1].right+pockets[2].left)/2-rect.left,rect.width],strips=[];
-    for(let i=0;i<3;i++){const column=foldDirection===1?i:2-i,start=cuts[column],w=cuts[column+1]-start,strip=document.createElement('div');strip.className='page-strip';strip.dataset.column=column;strip.foldWidth=w;Object.assign(strip.style,{width:w+.25+'px',height:rect.height+'px',transformOrigin:foldDirection===1?'left center':'right center'});
-      for(const [face,reverse] of [[front,false],[back,true]]){const mask=document.createElement('div');mask.className='strip-face'+(reverse?' strip-back':'');const content=face.cloneNode(true);content.style.left=-(reverse?rect.width-start-w:start)+'px';mask.append(content);strip.append(mask);}sheet.append(strip);strips.push(strip);
+    for(let i=0;i<3;i++){const column=foldDirection===1?i:2-i,start=cuts[column],w=cuts[column+1]-start,strip=document.createElement('div');strip.className='page-strip';strip.dataset.column=column;strip.foldWidth=w;strip.lights=[];Object.assign(strip.style,{left:'0px',width:w+.25+'px',height:rect.height+'px',transformOrigin:foldDirection===1?'left center':'right center'});
+      for(const [face,reverse] of [[front,false],[back,true]]){const mask=document.createElement('div');mask.className='strip-face'+(reverse?' strip-back':'');const content=turnFace(face,reverse?2-column:column,-(reverse?rect.width-start-w:start),rect.width,rect.height),light=document.createElement('div');light.className='strip-light';mask.append(content,light);strip.lights.push(light);strip.append(mask);}sheet.append(strip);strips.push(strip);
     }
-    if(spreadMedia.matches){if(direction===1)spread.lastElementChild.replaceWith(leaf(target+1,{side:'right',corners:false}));else spread.firstElementChild.replaceWith(leaf(target,{side:'left',corners:false}));}else if(!reverseTurn)spread.replaceChildren(leaf(target,{corners:false}));
-    book.append(sheet);book.classList.add('page-turning');turn={direction,foldDirection,reverseTurn,corner,target,sheet,strips,gap,width:rect.width,progress:0,frame:0};paintTurn(0);return true;
+    if(spreadMedia.matches){if(direction===1)spread.lastElementChild.replaceWith(destination[1]);else spread.firstElementChild.replaceWith(destination[0]);}else if(!reverseTurn)spread.replaceChildren(destination[0]);
+    book.append(sheet);book.classList.add('page-turning');turn={direction,foldDirection,reverseTurn,corner,target,sheet,strips,gap,resting,destination,ready,width:rect.width,progress:0,frame:0,inputFrame:0,finishing:false};paintTurn(0);return true;
   }
   function paintTurn(progress){if(!turn)return;const t=turn;t.progress=progress;const fold=t.reverseTurn?1-progress:progress,direction=t.foldDirection,wave=Math.sin(fold*Math.PI);let x=direction===1?0:t.width,z=0;
     t.strips.forEach((strip,i)=>{const w=strip.foldWidth,angle=Math.PI*fold+wave*.6*(i-1),dy=0,left=direction===1?x:x-w;
-      strip.style.left=left+'px';strip.style.transform=`translate3d(${-direction*t.gap*fold}px,${dy}px,${z}px) rotateY(${-direction*angle*180/Math.PI}deg)`;strip.style.setProperty('--strip-shade',Math.abs(Math.sin(angle))*.22);x+=direction*Math.cos(angle)*w;z+=Math.sin(angle)*w;
+      strip.style.transform=`translate3d(${left-direction*t.gap*fold}px,${dy}px,${z}px) rotateY(${-direction*angle*180/Math.PI}deg)`;const shade=String(Math.abs(Math.sin(angle))*.22);strip.lights.forEach(light=>light.style.opacity=shade);x+=direction*Math.cos(angle)*w;z+=Math.sin(angle)*w;
     });book.dataset.turnProgress=progress.toFixed(3);
   }
-  function finishTurn(commit){if(!turn)return;cancelAnimationFrame(turn.frame);if(commit)page=turn.target;turn.sheet.remove();turn=null;book.classList.remove('page-turning');delete book.dataset.turnProgress;renderBook();}
-  function settleTurn(commit){if(!turn)return;if(reduced()){finishTurn(commit);return;}cancelAnimationFrame(turn.frame);const start=turn.progress,end=commit?1:0,started=performance.now(),duration=Math.max(220,Math.abs(end-start)*680);function tick(now){if(!turn)return;const t=Math.min(1,(now-started)/duration),eased=t*t*(3-2*t);paintTurn(start+(end-start)*eased);if(t<1)turn.frame=requestAnimationFrame(tick);else finishTurn(commit);}turn.frame=requestAnimationFrame(tick);}
+  function finishTurn(commit){
+    if(!turn||turn.finishing)return;const t=turn;t.finishing=true;cancelAnimationFrame(t.frame);cancelAnimationFrame(t.inputFrame);
+    if(commit)page=t.target;
+    // Install the already prepared resting pages underneath the final fold.
+    // Let their decoded images paint before retiring the animated surface.
+    renderBook(commit?t.destination:t.resting);
+    const remove=()=>{if(turn!==t)return;t.sheet.remove();turn=null;book.classList.remove('page-turning');delete book.dataset.turnProgress;};
+    if(reduced()){remove();return;}
+    (commit?t.ready:Promise.resolve()).then(()=>{t.frame=requestAnimationFrame(()=>{t.frame=requestAnimationFrame(remove);});});
+  }
+  function followTurn(progress){if(!turn||turn.finishing)return;const t=turn;t.progress=progress;if(!t.inputFrame)t.inputFrame=requestAnimationFrame(()=>{t.inputFrame=0;if(turn===t&&!t.finishing)paintTurn(t.progress);});}
+  function settleTurn(commit){if(!turn||turn.finishing)return;if(reduced()){finishTurn(commit);return;}cancelAnimationFrame(turn.frame);cancelAnimationFrame(turn.inputFrame);turn.inputFrame=0;const start=turn.progress,end=commit?1:0,started=performance.now(),duration=Math.max(220,Math.abs(end-start)*680);function tick(now){if(!turn||turn.finishing)return;const t=Math.min(1,(now-started)/duration),eased=t*t*(3-2*t);paintTurn(start+(end-start)*eased);if(t<1)turn.frame=requestAnimationFrame(tick);else finishTurn(commit);}turn.frame=requestAnimationFrame(tick);}
   function turnPage(direction,corner='bottom'){if(startTurn(direction,corner))settleTurn(true);}
   $('prev-page').onclick=()=>turnPage(-1);$('next-page').onclick=()=>turnPage(1);
   let pageGrab=null;
   book.addEventListener('pointerdown',e=>{if(e.button!==0||turn||drag)return;const corner=e.target.closest('.page-corner'),vacant=e.target.closest('.physical-pocket.vacant');if(corner&&!corner.disabled){e.stopPropagation();if(startTurn(Number(corner.dataset.turnDirection),corner.dataset.turnCorner)){turn.pointer=e.pointerId;turn.startX=e.clientX;turn.moved=false;book.setPointerCapture(e.pointerId);}}else if(vacant){e.stopPropagation();const leaf=vacant.closest('.binder-leaf'),r=leaf.getBoundingClientRect();pageGrab={id:e.pointerId,x:e.clientX,y:e.clientY,side:leaf.classList.contains('leaf-left')?-1:1,corner:e.clientY<r.top+r.height/2?'top':'bottom'};book.setPointerCapture(e.pointerId);}});
-  book.addEventListener('pointermove',e=>{if(pageGrab?.id===e.pointerId){const g=pageGrab,dx=e.clientX-g.x;if(Math.abs(dx)<5||Math.abs(dx)<Math.abs(e.clientY-g.y)*.65)return;const direction=dx<0?1:-1;if(spreadMedia.matches&&direction!==g.side)return;if(!startTurn(direction,g.corner))return;turn.pointer=e.pointerId;turn.startX=g.x;turn.moved=true;pageGrab=null;}if(!turn||turn.pointer!==e.pointerId)return;const distance=(turn.startX-e.clientX)*turn.direction;if(Math.abs(distance)>4)turn.moved=true;paintTurn(Math.acos(Math.max(-1,Math.min(1,1-distance/turn.width)))/Math.PI);});
+  book.addEventListener('pointermove',e=>{if(pageGrab?.id===e.pointerId){const g=pageGrab,dx=e.clientX-g.x;if(Math.abs(dx)<5||Math.abs(dx)<Math.abs(e.clientY-g.y)*.65)return;const direction=dx<0?1:-1;if(spreadMedia.matches&&direction!==g.side)return;if(!startTurn(direction,g.corner))return;turn.pointer=e.pointerId;turn.startX=g.x;turn.moved=true;pageGrab=null;}if(!turn||turn.finishing||turn.pointer!==e.pointerId)return;const distance=(turn.startX-e.clientX)*turn.direction;if(Math.abs(distance)>4)turn.moved=true;followTurn(Math.acos(Math.max(-1,Math.min(1,1-distance/turn.width)))/Math.PI);});
   book.addEventListener('pointerup',e=>{if(pageGrab?.id===e.pointerId){pageGrab=null;if(book.hasPointerCapture(e.pointerId))book.releasePointerCapture(e.pointerId);return;}if(!turn||turn.pointer!==e.pointerId)return;const distance=(turn.startX-e.clientX)*turn.direction,commit=!turn.moved||distance>=12;turn.pointer=null;if(book.hasPointerCapture(e.pointerId))book.releasePointerCapture(e.pointerId);settleTurn(commit);e.preventDefault();});
   function cancelPageGesture(e){if(pageGrab?.id===e.pointerId)pageGrab=null;if(turn?.pointer===e.pointerId){turn.pointer=null;settleTurn(false);}}
   book.addEventListener('pointercancel',cancelPageGesture);book.addEventListener('lostpointercapture',cancelPageGesture);

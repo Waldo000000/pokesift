@@ -11,7 +11,8 @@
     "test:motion": "node tests/motion.cjs",
     "test:cloud": "node tests/cloud-browser.cjs",
     "test:retries": "node tests/bulk-retries.cjs",
-    "test:chinese-images": "node tests/chinese-images.cjs"
+    "test:chinese-images": "node tests/chinese-images.cjs",
+    "test:binder": "node tests/binder-turns.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"
