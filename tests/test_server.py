@@ -233,6 +233,22 @@ class ServerTests(unittest.TestCase):
         conn.close()
         self.assertEqual(self.calls, [])
 
+    def test_workspace_assets_are_public_and_use_the_expected_mime_types(self):
+        for path, mime, marker in [
+            ('/workspace.js', 'javascript', b'PokeSiftWorkspace'),
+            ('/workspace.css', 'text/css', b'.workspace-app'),
+        ]:
+            with self.subTest(path=path):
+                conn = http.client.HTTPConnection(self.host, timeout=5)
+                conn.request('GET', path)
+                response = conn.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertIn(mime, response.getheader('Content-Type'))
+                self.assertEqual(response.getheader('X-Content-Type-Options'), 'nosniff')
+                self.assertIn(marker, response.read())
+                conn.close()
+        self.assertEqual(self.calls, [])
+
     def test_exchange_rates_are_authenticated_cached_and_fall_back(self):
         rates = {'base': 'AUD', 'date': '2026-10-26', 'rates': {'USD': 0.7, 'AUD': 1}, 'stale': False}
         self.server.exchange_rates = MagicMock(return_value=rates)

@@ -1,3 +1,4 @@
+const {reveal,openTools,closeTools,roomOptions,closeRoomOptions}=require('./ui.cjs');
 // No real API requests: every identification call is intercepted with a fixture.
 const { chromium } = require('playwright');
 const { spawn, execFileSync } = require('node:child_process');
@@ -33,10 +34,10 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   });
   await page.goto(`http://127.0.0.1:${port}`);
   assert.equal(await page.locator('#key').count(),0);
-  await page.locator('#bulk-pricing').waitFor({state:'visible'});
+  await reveal(page,'#bulk-pricing');await page.locator('#bulk-pricing').waitFor({state:'visible'});
   assert(await page.locator('#update-missing-prices').isDisabled());
   assert.match(await page.locator('#bulk-price-status').textContent(),/Add cards/);
-  await page.locator('#open-camera').click();
+  await closeTools(page);await page.locator('#open-camera').click();
   await page.locator('#photo-input').setInputFiles([photo,{...photo,name:'second.png'},{...photo,name:'third.png'}]);
   await waitFor(()=>page.locator('.tray-card').count().then(n=>n===3));
   await waitFor(()=>page.locator('.tray-card').allTextContents().then(t=>t.some(x=>x.includes('Card 2'))));
@@ -48,10 +49,10 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await waitFor(()=>page.locator('#activity').isHidden());
   assert.equal(count,3);assert.equal(maxInflight,2);
   assert.equal(await page.locator('.card-tile').count(),3);
-  assert(await page.locator('#bulk-pricing').isVisible());
+  await reveal(page,'#bulk-pricing');assert(await page.locator('#bulk-pricing').isVisible());
   assert(await page.locator('#update-missing-prices').isDisabled());
   assert.match(await page.locator('#bulk-price-status').textContent(),/saved name and number/);
-  await page.locator('.card-tile').filter({hasText:'Card 1'}).click();
+  await closeTools(page);await page.locator('.card-tile').filter({hasText:'Card 1'}).click();
   assert.match(await page.locator('#detail-prices').textContent(),/Original quote: 5.4 USD \(currency assumed\)/);
   await page.locator('#close-detail').click();
   await page.reload();
@@ -66,15 +67,15 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert(saved.every(e=>e.result.data.candidates[0].prices[0].currency==='USD' && e.currencyAssumed && e.result.data.candidates[0].prices[0].currency_assumed));
   assert.match(await page.locator('#card-grid').textContent(),/A\$8.10/);
   usdRate=.5;
-  await page.locator('#fx-refresh').click();
+  await reveal(page,'#fx-refresh');await page.locator('#fx-refresh').click();
   await waitFor(()=>page.locator('#card-grid').textContent().then(t=>t.includes('A$10.80')));
   const original=await page.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries[0].result.data.candidates[0].prices[0],key);
   assert.equal(original.market_price,5.4);assert.equal(original.currency,'USD');
-  await page.locator('[data-filter="review"]').click();assert.equal(await page.locator('.card-tile').count(),1);
-  await page.locator('[data-filter="all"]').click();
+  await closeTools(page);await page.locator('[data-filter="review"]').click();assert.equal(await page.locator('.card-tile').count(),1);
+  await closeTools(page);await page.locator('[data-filter="all"]').click();
   await page.locator('#search').fill('Card 2');assert.equal(await page.locator('.card-tile').count(),1);
   await page.locator('#search').fill('');
-  await page.locator('#open-camera').click();await page.locator('#enable-camera').click();
+  await closeTools(page);await page.locator('#open-camera').click();await page.locator('#enable-camera').click();
   await waitFor(()=>page.locator('#shutter').isEnabled());
   const stopped=await page.evaluate(()=>{window.testTrack=document.querySelector('video').srcObject.getVideoTracks()[0];return testTrack.readyState;});
   assert.equal(stopped,'live');
@@ -110,7 +111,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   let lightScans=0;
   await lit.route('**/api/identify',r=>{lightScans++;return r.fulfill({json:fixture('Lit capture')});});
   await lit.route('**/api/card-image?*',r=>r.fulfill({contentType:'image/png',body:photo.buffer}));
-  await lit.goto(`http://127.0.0.1:${port}`);await lit.locator('#open-camera').click();
+  await lit.goto(`http://127.0.0.1:${port}`);await closeTools(lit);await lit.locator('#open-camera').click();
   assert(await lit.locator('#camera-light').isHidden());
   await lit.locator('#enable-camera').click();await waitFor(()=>lit.locator('#shutter').isEnabled());
   const flash=lit.locator('#toggle-flash');assert(await flash.isVisible());
@@ -132,14 +133,14 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await lit.locator('#close-camera').click();
   assert.equal(await lit.evaluate(()=>flashFixture.tracks[0].readyState),'ended');
   assert.equal(await lit.evaluate(()=>flashFixture.tracks[0].getSettings().torch),false);
-  await lit.evaluate(()=>flashFixture.defer=false);await lit.locator('#open-camera').click();await lit.locator('#enable-camera').click();
+  await lit.evaluate(()=>flashFixture.defer=false);await closeTools(lit);await lit.locator('#open-camera').click();await lit.locator('#enable-camera').click();
   await waitFor(()=>lit.locator('#shutter').isEnabled());await lit.evaluate(()=>flashFixture.release());
   await waitFor(()=>flash.isEnabled());assert.equal(await flash.getAttribute('aria-pressed'),'false');
   assert.equal(await lit.locator('#flash-status').textContent(),'','An old toggle must not update a new camera session');
   await lit.screenshot({path:'/tmp/pokesift-camera-flash-mobile.png'});
   await lit.locator('#close-camera').click();
   for(const mode of ['unsupported','throws','array']){
-    await lit.evaluate(mode=>flashFixture.mode=mode,mode);await lit.locator('#open-camera').click();await lit.locator('#enable-camera').click();
+    await lit.evaluate(mode=>flashFixture.mode=mode,mode);await closeTools(lit);await lit.locator('#open-camera').click();await lit.locator('#enable-camera').click();
     await waitFor(()=>lit.locator('#shutter').isEnabled());assert.equal(await flash.isVisible(),mode==='array');
     await lit.locator('#close-camera').click();
   }
@@ -160,7 +161,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
     const uploads=[];
     await p.route('**/api/identify',r=>{uploads.push(r.request().postDataBuffer());return r.fulfill({json:fixture('Cropped '+uploads.length)});});
     await p.route('**/api/card-image?*',r=>r.fulfill({contentType:'image/png',body:photo.buffer}));
-    await p.goto(`http://127.0.0.1:${port}`);await p.locator('#open-camera').click();await p.locator('#enable-camera').click();
+    await p.goto(`http://127.0.0.1:${port}`);await closeTools(p);await p.locator('#open-camera').click();await p.locator('#enable-camera').click();
     await waitFor(()=>p.locator('#shutter').isEnabled());
     const preview=await p.locator('#camera-crop').boundingBox();assert(Math.abs(preview.width/preview.height-63/88)<.005);
     assert(await p.locator('#crop-zoom-out').isDisabled());
@@ -186,7 +187,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   // Interrupted work: never replay an unfinished upload after navigation.
   const interrupted=await newContext(), ip=await interrupted.newPage();
   await ip.route('**/api/identify',()=>{});
-  await ip.goto(`http://127.0.0.1:${port}`);await ip.locator('#open-camera').click();
+  await ip.goto(`http://127.0.0.1:${port}`);await closeTools(ip);await ip.locator('#open-camera').click();
   await ip.locator('#photo-input').setInputFiles(photo);
   await waitFor(()=>ip.evaluate(k=>JSON.parse(localStorage.getItem(k)||'{"entries":[]}').entries.some(e=>e.status==='scanning'),key));
   ip.on('dialog',d=>d.accept());await ip.reload();
@@ -197,9 +198,9 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await fp.addInitScript(()=>{Storage.prototype.setItem=function(){throw new DOMException('Full','QuotaExceededError');};});
   await fp.route('**/api/card-image?*',r=>r.fulfill({status:502,contentType:'application/json',body:'{}'}));
   await fp.route('**/api/identify',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(fixture('Storage test'))}));
-  await fp.goto(`http://127.0.0.1:${port}`);await fp.locator('#open-camera').click();await fp.locator('#photo-input').setInputFiles(photo);
+  await fp.goto(`http://127.0.0.1:${port}`);await closeTools(fp);await fp.locator('#open-camera').click();await fp.locator('#photo-input').setInputFiles(photo);
   await waitFor(()=>fp.locator('#card-grid').textContent().then(t=>t.includes('Storage test')));
-  await fp.locator('#close-camera').click();assert(await fp.locator('#storage-warning').isVisible());assert(await fp.locator('#export').isVisible());
+  await fp.locator('#close-camera').click();assert(await fp.locator('#storage-warning').isVisible());assert(await fp.locator('#storage-backup').isVisible());
   await full.close();
   const offline=await newContext(), op=await offline.newPage();
   await op.addInitScript(({key,saved})=>{
@@ -230,7 +231,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert(!(await pp.evaluate(()=>JSON.stringify(localStorage))).includes(invite));
   const cookies=await pairing.cookies();assert(cookies.find(c=>c.name==='pokesift').httpOnly);
   await pp.reload();await waitFor(()=>pp.locator('body').getAttribute('data-auth').then(x=>x==='signed-in'));
-  await pp.locator('#add-device').click();await waitFor(()=>pp.locator('#invite-qr').isVisible());
+  await reveal(pp,'#add-device');await pp.locator('#add-device').click();await waitFor(()=>pp.locator('#invite-qr').isVisible());
   assert(await pp.locator('#invite-qr').evaluate(e=>e.complete && e.naturalWidth>0));
   await pp.locator('#close-invite').click();
   // Restore/export all records without identification calls, and skip duplicate IDs.
@@ -246,7 +247,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await pp.locator('#backup-file').setInputFiles({name:'invalid.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({version:1,entries:[{id:'bad',status:'matched',thumbnail:'https://evil.example/photo.jpg'}]}))});
   await waitFor(()=>pp.locator('#toast').textContent().then(t=>t.includes('invalid')));
   assert.equal(await pp.locator('.card-tile').count(),saved.length);assert.equal(restoreScans,0);
-  const downloadPromise=pp.waitForEvent('download');await pp.locator('#export').click();
+  const downloadPromise=pp.waitForEvent('download');await reveal(pp,'#export');await pp.locator('#export').click();
   const download=await downloadPromise;const stream=await download.createReadStream();const chunks=[];for await (const chunk of stream) chunks.push(chunk);
   const exported=JSON.parse(Buffer.concat(chunks).toString());
   assert.equal(exported.backupVersion,4);assert.equal(exported.entries.length,saved.length);
@@ -254,14 +255,14 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert(exported.entries.some(e=>e.providerObservations?.length));
   assert(exported.entries.some(e=>e.canonicalImage));assert(exported.exchangeRates);
   assert(!JSON.stringify(exported).includes(invite));
-  await pp.locator('#sign-out').click();await waitFor(()=>pp.locator('body').getAttribute('data-auth').then(x=>x==='signed-out'));
+  await reveal(pp,'#sign-out');await pp.locator('#sign-out').click();await waitFor(()=>pp.locator('body').getAttribute('data-auth').then(x=>x==='signed-out'));
   assert(!(await pairing.cookies()).some(c=>c.name==='pokesift'));
   await pairing.close();
   const unsupported=await newContext(), up=await unsupported.newPage();
   let unknownScans=0,unknownImages=0;
   await up.route('**/api/card-image?*',r=>{unknownImages++;return r.abort();});
   await up.route('**/api/identify',r=>{unknownScans++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({data:{status:'unsupported',message:'Catalog language unsupported',read:{name:'Delibird',number:'011/058',set:'CSWhSC',language:'other',finish:'non_holo',stamp:'Dragonite silhouette'},candidates:[{name:'English candidate',tcgplayer_id:12345,prices:[{market_price:999,currency:'USD'}]}]}})});});
-  await up.goto(`http://127.0.0.1:${port}`);await up.locator('#open-camera').click();await up.locator('#photo-input').setInputFiles(photo);
+  await up.goto(`http://127.0.0.1:${port}`);await closeTools(up);await up.locator('#open-camera').click();await up.locator('#photo-input').setInputFiles(photo);
   await waitFor(()=>up.locator('#latest-name').textContent().then(s=>s==='Delibird'));
   assert.equal(await up.locator('#latest-price').textContent(),'Value unknown');
   assert.match(await up.locator('#result-tray').textContent(),/Value unknown/);
@@ -269,7 +270,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await waitFor(()=>up.locator('.card-tile').count().then(n=>n===1));
   await up.locator('#search').fill('CSWhSC');assert.equal(await up.locator('.card-tile').count(),1);
   assert.match(await up.locator('#card-grid').textContent(),/Delibird/);
-  await up.locator('.card-tile').click();
+  await closeTools(up);await up.locator('.card-tile').click();
   assert.match(await up.locator('#detail-meta').textContent(),/011\/058/);
   assert.match(await up.locator('#detail-prices').textContent(),/Unknown/);
   assert(!(await up.locator('#detail-prices').textContent()).includes('999'));
@@ -280,10 +281,10 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await dp.addInitScript(()=>Object.defineProperty(window,'indexedDB',{value:{open(){throw new Error('Storage disabled');}}}));
   await dp.route('**/api/card-image?*',r=>r.fulfill({status:502,body:'{}'}));
   await dp.route('**/api/identify',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(fixture('Photo fallback'))}));
-  await dp.goto(`http://127.0.0.1:${port}`);await dp.locator('#open-camera').click();await dp.locator('#photo-input').setInputFiles(photo);
+  await dp.goto(`http://127.0.0.1:${port}`);await closeTools(dp);await dp.locator('#open-camera').click();await dp.locator('#photo-input').setInputFiles(photo);
   await waitFor(()=>dp.locator('#card-grid').textContent().then(t=>t.includes('Photo fallback')));
   await dp.locator('#camera-done').click();assert(await dp.locator('#photo-storage-warning').isVisible());
-  const imageDownload=dp.waitForEvent('download');await dp.locator('#export').click();
+  const imageDownload=dp.waitForEvent('download');await reveal(dp,'#export');await dp.locator('#export').click();
   const imageStream=await (await imageDownload).createReadStream(),imageChunks=[];for await(const c of imageStream)imageChunks.push(c);
   const imageBackup=JSON.parse(Buffer.concat(imageChunks));
   assert.equal(Object.keys(imageBackup.scanImages).length,1);assert.equal(imageBackup.entries[0].scanPhoto.persisted,false);
@@ -301,19 +302,19 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   let valuationScans=0;
   await vp.route('**/api/identify',r=>{valuationScans++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(multi)});});
   await vp.route('**/api/card-image?*',r=>r.fulfill({status:502,body:'{}'}));
-  await vp.goto(`http://127.0.0.1:${port}`);await vp.locator('#open-camera').click();await vp.locator('#photo-input').setInputFiles(photo);
+  await vp.goto(`http://127.0.0.1:${port}`);await closeTools(vp);await vp.locator('#open-camera').click();await vp.locator('#photo-input').setInputFiles(photo);
   await waitFor(()=>vp.locator('#latest-price').textContent().then(t=>t==='A$6.00'));
   assert.match(await vp.locator('#result-tray').textContent(),/A\$6.00/);
   await vp.locator('#camera-done').click();
   assert.match(await vp.locator('#card-grid').textContent(),/A\$6.00.*Lowest estimate/);
-  await vp.locator('.card-tile').click();
+  await closeTools(vp);await vp.locator('.card-tile').click();
   assert.equal(await vp.locator('#valuation-choice option').count(),4);
-  await vp.locator('#valuation-choice').selectOption({label:'Reverse Holofoil · A$11.67'});
+  await reveal(vp,'#valuation-choice');await vp.locator('#valuation-choice').selectOption({label:'Reverse Holofoil · A$11.67'});
   await vp.locator('#close-detail').click();
   assert.match(await vp.locator('#card-grid').textContent(),/A\$11.67/);
   assert.match(await vp.locator('#card-grid').textContent(),/Your selection/);
   await vp.reload();await waitFor(()=>vp.locator('#card-grid').textContent().then(t=>t.includes('A$11.67')));
-  const choiceDownload=vp.waitForEvent('download');await vp.locator('#export').click();
+  const choiceDownload=vp.waitForEvent('download');await reveal(vp,'#export');await vp.locator('#export').click();
   const choiceChunks=[];for await(const c of await (await choiceDownload).createReadStream())choiceChunks.push(c);
   const choiceBackup=JSON.parse(Buffer.concat(choiceChunks));
   assert(choiceBackup.entries[0].selectedPriceKey);
@@ -326,7 +327,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await cr.goto(`http://127.0.0.1:${port}`);
   await cr.locator('#backup-file').setInputFiles({name:'choice.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(choiceBackup))});
   await waitFor(()=>cr.locator('#card-grid').textContent().then(t=>t.includes('A$15.00')));
-  await cr.locator('.card-tile').click();await cr.locator('#valuation-choice').selectOption('');await cr.locator('#close-detail').click();
+  await closeTools(cr);await cr.locator('.card-tile').click();await reveal(cr,'#valuation-choice');await cr.locator('#valuation-choice').selectOption('');await cr.locator('#close-detail').click();
   assert.match(await cr.locator('#card-grid').textContent(),/A\$6.00/);
   assert.match(await cr.locator('#card-grid').textContent(),/Lowest estimate/);
   // Missing FX must not choose an arbitrary mixed-currency minimum.
@@ -342,8 +343,8 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   await cp.route('**/api/identify',r=>{chineseScans++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({data:{status:'unsupported',read:chineseRead}})});});
   await cp.route('**/api/enrich',r=>{enrichmentCalls++;assert.deepEqual(r.request().postDataJSON(),{read:chineseRead});const candidate=structuredClone(chineseCandidate);if(priced){candidate.card.pricing_status='available';candidate.card.prices=[{printing:'dragonite-stamp',market_price:18.5,original_price_cents:1850,currency:'USD',currency_assumed:false,source:'PikaQian'}];}return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({provider:'pikaqian',status:'review',candidates:[candidate]})});});
   await cp.route('**/api/pikaqian-image?*',r=>r.fulfill({status:200,contentType:'image/png',body:photo.buffer}));
-  await cp.goto(`http://127.0.0.1:${port}`);await cp.locator('#open-camera').click();await cp.locator('#photo-input').setInputFiles(photo);
-  await waitFor(()=>enrichmentCalls===1);await cp.locator('#camera-done').click();await cp.locator('.card-tile').click();
+  await cp.goto(`http://127.0.0.1:${port}`);await closeTools(cp);await cp.locator('#open-camera').click();await cp.locator('#photo-input').setInputFiles(photo);
+  await waitFor(()=>enrichmentCalls===1);await cp.locator('#camera-done').click();await closeTools(cp);await cp.locator('.card-tile').click();
   await waitFor(()=>cp.locator('#catalog-candidates button').count().then(n=>n===1));
   assert.match(await cp.locator('#catalog-status').textContent(),/Check the set/);
   assert.match(await cp.locator('#detail-prices').textContent(),/Unknown/);
@@ -362,7 +363,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert(chineseSaved.canonicalImage);assert.equal(chineseSaved.catalogMatch.confirmedBy,'user');
   assert.equal(chineseSaved.catalogMatch.card.prices[0].original_price_cents,1850);
   assert(chineseSaved.providerObservations.some(o=>o.provider==='tcgapi'));assert(chineseSaved.providerObservations.some(o=>o.provider==='pikaqian'));
-  const chineseDownload=cp.waitForEvent('download');await cp.locator('#export').click();const chineseChunks=[];for await(const c of await (await chineseDownload).createReadStream())chineseChunks.push(c);
+  const chineseDownload=cp.waitForEvent('download');await reveal(cp,'#export');await cp.locator('#export').click();const chineseChunks=[];for await(const c of await (await chineseDownload).createReadStream())chineseChunks.push(c);
   const chineseBackup=JSON.parse(Buffer.concat(chineseChunks));assert.deepEqual(chineseBackup.entries[0].catalogMatch,chineseSaved.catalogMatch);
   await chinese.close();
   // Bulk prices: one price-only lookup per printing, paced, no scans or image requests.
@@ -382,7 +383,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
     return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({provider:'pikaqian',status:name==='Delibird'?'matched':name==='Pikachu'?'review':'not_found',candidates:name==='Eevee'?[]:[candidate]})});
   });
   assert(await lp.locator('#update-missing-prices').isEnabled());
-  await lp.locator('#update-missing-prices').click();
+  await reveal(lp,'#update-missing-prices');await lp.locator('#update-missing-prices').click();
   await lp.waitForFunction(()=>document.querySelector('#bulk-price-status').textContent.startsWith('Finished.'),{},{timeout:15000});
   assert.equal(legacyLookups,3);assert.equal(legacyScans,0);assert.equal(legacyImages,1);
   assert.match(await lp.locator('#bulk-price-status').textContent(),/2 cards priced · 1 need review · 1 not found/);
@@ -391,7 +392,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert(legacySaved.find(e=>e.id==='old-2').canonicalImage);
   assert.equal(legacySaved.find(e=>e.id==='old-3').catalogMatch,undefined);
   await lp.reload();assert.equal(legacyLookups,3);assert(await lp.locator('#update-missing-prices').isDisabled());
-  await lp.locator('.card-tile').filter({hasText:'Pikachu'}).click();
+  await closeTools(lp);await lp.locator('.card-tile').filter({hasText:'Pikachu'}).click();
   await waitFor(()=>legacyImages===2);
   await lp.locator('#catalog-candidates button').click();await lp.locator('#close-detail').click();
   assert.match(await lp.locator('.card-tile').filter({hasText:'Pikachu'}).textContent(),/A\$/);
@@ -400,18 +401,18 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   const [quotaCatalog,qp]=await setupBulk([oldScan(11),oldScan(12,'Pikachu')]);let quotaLookups=0;
   await qp.route('**/api/pikaqian-image?*',r=>r.fulfill({status:200,contentType:'image/png',body:photo.buffer}));
   await qp.route('**/api/enrich',r=>{quotaLookups++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'matched',candidates:[{...chineseCandidate,card:{...chineseCandidate.card,pricing_status:'unavailable'}}],pricingError:'rate_limited'})});});
-  await qp.locator('#update-missing-prices').click();await qp.waitForFunction(()=>document.querySelector('#bulk-price-status').textContent.startsWith('Stopped.'));
+  await reveal(qp,'#update-missing-prices');await qp.locator('#update-missing-prices').click();await qp.waitForFunction(()=>document.querySelector('#bulk-price-status').textContent.startsWith('Stopped.'));
   assert.equal(quotaLookups,1);assert.equal(await qp.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries.find(e=>e.id==='old-11').catalogMatch.card.provider_id,key),chineseCandidate.card.provider_id);
   await quotaCatalog.close();
   // Failed scans can reuse the exact saved upload after reload, without a
   // duplicate card, lost metadata or repeated clicks spending twice.
   const retries=await newContext(),retryPage=await retries.newPage();let retryCalls=0,retryBodies=[];
   await retryPage.route('**/api/identify',async r=>{retryCalls++;retryBodies.push(r.request().postDataBuffer());if(retryCalls===1)return r.fulfill({status:429,json:{error:{message:'The shared or account allowance is currently full.'}}});await new Promise(resolve=>setTimeout(resolve,300));return r.fulfill({json:{data:{status:'matched',read:{name:'Recovered card'},candidates:[]}}});});
-  await retryPage.goto(`http://127.0.0.1:${port}`);await retryPage.locator('#open-camera').click();await retryPage.locator('#photo-input').setInputFiles(photo);
+  await retryPage.goto(`http://127.0.0.1:${port}`);await closeTools(retryPage);await retryPage.locator('#open-camera').click();await retryPage.locator('#photo-input').setInputFiles(photo);
   await retryPage.waitForFunction(()=>entries[0]?.status==='error');await retryPage.locator('#close-camera').click();
   const failed=await retryPage.evaluate(()=>{entries[0].collectorNote='Keep this note';save();return structuredClone(entries[0]);});
   await retryPage.reload();assert.equal(retryCalls,1,'Reloading failed scans must not retry them');
-  await retryPage.locator('.card-tile').click();await retryPage.locator('#retry-scan').waitFor({state:'visible'});
+  await closeTools(retryPage);await retryPage.locator('.card-tile').click();await retryPage.locator('#retry-scan').waitFor({state:'visible'});
   await retryPage.evaluate(()=>{document.querySelector('#retry-scan').click();document.querySelector('#retry-scan').click();});
   await retryPage.waitForFunction(()=>entries[0]?.status==='matched');
   const recovered=await retryPage.evaluate(()=>structuredClone(entries[0]));
@@ -432,14 +433,14 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   const retakes=await newContext(),rp=await retakes.newPage();let retakeScans=0;
   await rp.route('**/api/identify',r=>{retakeScans++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(fixture('Retaken card',retakeScans===1?'retake':'matched'))});});
   await rp.route('**/api/card-image?*',r=>r.fulfill({status:200,contentType:'image/png',body:photo.buffer}));
-  await rp.goto(`http://127.0.0.1:${port}`);await rp.locator('#open-camera').click();await rp.locator('#photo-input').setInputFiles(photo);
+  await rp.goto(`http://127.0.0.1:${port}`);await closeTools(rp);await rp.locator('#open-camera').click();await rp.locator('#photo-input').setInputFiles(photo);
   await waitFor(()=>rp.locator('#activity').isHidden());await rp.locator('#close-camera').click();
   await rp.locator('.retake-button').waitFor({state:'visible'});
   const originalRetake=await rp.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries[0],key);
   await rp.locator('.retake-button').click();assert(await rp.locator('#retake-note').isVisible());
   assert.equal(await rp.locator('#photo-input').getAttribute('multiple'),null);
   await rp.locator('#close-camera').click();assert.equal(retakeScans,1,'Opening/canceling retake must not spend a scan');
-  await rp.locator('.card-tile').click();await rp.locator('#retake-card').click();
+  await closeTools(rp);await rp.locator('.card-tile').click();await rp.locator('#retake-card').click();
   await waitFor(()=>rp.locator('#shutter').isEnabled());
   await rp.locator('#photo-input').setInputFiles(photo);
   await waitFor(()=>retakeScans===2);await waitFor(()=>rp.locator('#activity').isHidden());
@@ -448,7 +449,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   const retaken=await rp.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries[0],key);
   assert.equal(retaken.id,originalRetake.id);assert.equal(retaken.status,'matched');assert.equal(retaken.scanHistory.length,1);
   assert.equal(retaken.providerObservations.length,2);assert(retaken.scanHistory[0].scanPhoto.persisted);
-  const retakeDownload=rp.waitForEvent('download');await rp.locator('#export').click();const retakeChunks=[];for await(const c of await (await retakeDownload).createReadStream())retakeChunks.push(c);
+  const retakeDownload=rp.waitForEvent('download');await reveal(rp,'#export');await rp.locator('#export').click();const retakeChunks=[];for await(const c of await (await retakeDownload).createReadStream())retakeChunks.push(c);
   const retakeBackup=JSON.parse(Buffer.concat(retakeChunks));assert.equal(retakeBackup.backupVersion,4);assert.equal(Object.keys(retakeBackup.scanImages).length,2);
   await retakes.close();
   const restoredRetake=await newContext(),rr=await restoredRetake.newPage();rr.on('dialog',d=>d.accept());
@@ -458,15 +459,15 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert(await rr.evaluate(async id=>Boolean(await PokeSiftPhotos.get(id)),retaken.scanHistory[0].id));
   // Removal confirms inline; cancel, Escape and closing details must keep the card.
   let removalDialogs=0;rr.on('dialog',()=>removalDialogs++);
-  await rr.locator('.card-tile').click();await rr.locator('#remove-card').click();
+  await closeTools(rr);await rr.locator('.card-tile').click();await reveal(rr,'#remove-card');await rr.locator('#remove-card').click();
   assert(await rr.locator('#remove-confirmation').isVisible());assert.equal(await rr.evaluate(()=>document.activeElement.id),'keep-card');
   assert.equal(await rr.locator('.card-tile').count(),1);
   await rr.locator('#keep-card').click();assert(await rr.locator('#remove-confirmation').isHidden());
-  await rr.locator('#remove-card').click();await rr.keyboard.press('Escape');
+  await reveal(rr,'#remove-card');await rr.locator('#remove-card').click();await rr.keyboard.press('Escape');
   assert(await rr.locator('#detail-view').isVisible());assert(await rr.locator('#remove-confirmation').isHidden());
-  await rr.locator('#remove-card').click();await rr.locator('#close-detail').click();await rr.locator('.card-tile').click();
+  await reveal(rr,'#remove-card');await rr.locator('#remove-card').click();await rr.locator('#close-detail').click();await closeTools(rr);await rr.locator('.card-tile').click();
   assert(await rr.locator('#remove-confirmation').isHidden());
-  await rr.locator('#remove-card').click();
+  await reveal(rr,'#remove-card');await rr.locator('#remove-card').click();
   await rr.evaluate(()=>{window.originalStorageWrite=Storage.prototype.setItem;Storage.prototype.setItem=()=>{throw new DOMException('Full','QuotaExceededError');};});
   await rr.locator('#confirm-remove-card').click();assert(await rr.locator('#remove-error').isVisible());
   assert.equal(await rr.locator('.card-tile').count(),1);assert(await rr.evaluate(async id=>Boolean(await PokeSiftPhotos.get(id)),retaken.id));
@@ -480,7 +481,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   let bulkCalls=[],unexpectedBulk=0;
   for(const route of ['**/api/identify','**/api/enrich','**/api/pikaqian-image?*'])await bp.route(route,r=>{unexpectedBulk++;return r.abort();});
   await bp.route('**/api/pikaqian-prices',r=>{const id=r.request().postDataJSON().cardId;bulkCalls.push({id,time:Date.now()});return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(bulkReply(id,id===bulkId(3)))});});
-  await bp.locator('#update-missing-prices').click();
+  await reveal(bp,'#update-missing-prices');await bp.locator('#update-missing-prices').click();
   await bp.waitForFunction(()=>document.querySelector('#bulk-price-status').textContent.startsWith('Finished.'),{},{timeout:12000});
   assert.equal(bulkCalls.length,3);assert(bulkCalls[1].time-bulkCalls[0].time>=1900);assert.equal(unexpectedBulk,0);
   assert.match(await bp.locator('#bulk-price-status').textContent(),/3 cards priced/);
@@ -495,8 +496,8 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   for(const mode of ['plan','errors','cancel']) {
     const [c,p]=await setupBulk([bulkEntry(11),bulkEntry(12),bulkEntry(13),bulkEntry(14)]);let calls=0,release;
     await p.route('**/api/pikaqian-prices',async r=>{calls++;if(mode==='cancel')await new Promise(resolve=>release=resolve);return r.fulfill({status:mode==='plan'?403:mode==='errors'?502:200,contentType:'application/json',body:JSON.stringify(mode==='cancel'?bulkReply(r.request().postDataJSON().cardId):{error:{code:mode==='plan'?'tier_required':'unavailable',message:mode==='plan'?'Hobby plan required':'Temporary failure'}})});});
-    await p.locator('#update-missing-prices').click();await waitFor(()=>calls===1);
-    if(mode==='cancel'){await p.locator('#stop-price-update').click();release();}
+    await reveal(p,'#update-missing-prices');await p.locator('#update-missing-prices').click();await waitFor(()=>calls===1);
+    if(mode==='cancel'){await reveal(p,'#stop-price-update');await p.locator('#stop-price-update').click();release();}
     // Three failures need two paced gaps; allow a little more time than waitFor's usual 5s.
     await p.waitForFunction(()=>document.querySelector('#stop-price-update').hidden,{},{timeout:12000});
     assert.equal(calls,mode==='errors'?3:1);
@@ -509,7 +510,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   const [capContext,capPage]=await setupBulk(Array.from({length:30},(_,i)=>bulkEntry(100+i)));
   await capPage.clock.install();let capCalls=0;
   await capPage.route('**/api/pikaqian-prices',r=>{capCalls++;return r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(bulkReply(r.request().postDataJSON().cardId))});});
-  await capPage.locator('#update-missing-prices').click();
+  await reveal(capPage,'#update-missing-prices');await capPage.locator('#update-missing-prices').click();
   for(let n=1;n<=25;n++) {
     await waitFor(()=>capPage.locator('#bulk-price-status').textContent().then(t=>t.includes(`${n} of 25 printings checked`)));
     if(n<25)await capPage.clock.runFor(2000);

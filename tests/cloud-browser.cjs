@@ -1,3 +1,4 @@
+const {reveal,openTools,closeTools,roomOptions,closeRoomOptions}=require('./ui.cjs');
 const {chromium}=require('playwright'),{spawn}=require('node:child_process'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'pokesift-cloud-')),port=8801,base=`http://127.0.0.1:${port}`;
 const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j3X8AAAAASUVORK5CYII=';
@@ -25,7 +26,7 @@ try{
  const migrated=await a.p.evaluate(()=>PokeSiftCloud.snapshot().entries[0]);assert.deepEqual(migrated.futureData,card.futureData);assert.deepEqual(migrated.visualFinish,card.visualFinish);assert(migrated.scanPhoto.sha256);assert(migrated.scanHistory[0].scanPhoto.sha256);
  const inventory=await a.p.evaluate(()=>PokeSiftCloud.api('inventory'));assert.equal(inventory.cards.length,1);assert.equal(inventory.migrations[0].state,'complete');assert.equal(inventory.layout.document.slots[0],'legacy-one');
  const second=await context('alice');await second.p.locator('.card-tile').waitFor();await waitSynced(second.p);assert.deepEqual(await second.p.evaluate(()=>PokeSiftCloud.snapshot().entries[0].futureData),card.futureData);
- const exportWait=second.p.waitForEvent('download');await second.p.locator('#export').click();const exportStream=await (await exportWait).createReadStream(),parts=[];for await(const part of exportStream)parts.push(part);const exported=JSON.parse(Buffer.concat(parts));assert.equal(Object.keys(exported.scanImages).length,2);assert.deepEqual(exported.missingScanImages,[]);assert.deepEqual(exported.collectionViews.positions,layout.positions);
+ const exportWait=second.p.waitForEvent('download');await reveal(second.p,'#export');await second.p.locator('#export').click();const exportStream=await (await exportWait).createReadStream(),parts=[];for await(const part of exportStream)parts.push(part);const exported=JSON.parse(Buffer.concat(parts));assert.equal(Object.keys(exported.scanImages).length,2);assert.deepEqual(exported.missingScanImages,[]);assert.deepEqual(exported.collectionViews.positions,layout.positions);
  const b=await context('bob');await waitSynced(b.p);assert.equal(await b.p.locator('.card-tile').count(),0);
  const isolation=await b.p.evaluate(async sha=>({card:(await fetch('/api/cloud/card?id=legacy-one')).status,media:(await fetch('/api/cloud/media?hash='+sha)).status,admin:(await fetch('/api/cloud/admin')).status}),migrated.scanPhoto.sha256);assert.deepEqual(isolation,{card:404,media:404,admin:403});
  // Offline edits on separate devices merge disjoint fields without losing data.
@@ -49,9 +50,9 @@ try{
  assert(dropped);await a.c.unroute('**/api/cloud/card');await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
  const afterReplay=await a.p.evaluate(()=>PokeSiftCloud.api('card?id=legacy-one'));assert.equal(afterReplay.document.replayMarker,'once');assert.equal((await a.p.evaluate(()=>PokeSiftCloud.api('inventory'))).cards.length,1);
  // Requests are visible with the Google email, and approval grants ongoing access.
- await b.p.locator('#account-button').click();await b.p.locator('#request-access-section summary').click();
+ await closeTools(b.p);await b.p.locator('#account-button').click();await b.p.locator('#request-access-section summary').click();
  await b.p.locator('#scan-request-note').fill('Please approve ongoing access');await b.p.locator('#request-scans').click();
- await a.p.locator('#account-button').click();await a.p.locator('#owner-tools>summary').click();await a.p.locator('#load-admin').click();
+ await closeTools(a.p);await a.p.locator('#account-button').click();await a.p.locator('#owner-tools>summary').click();await a.p.locator('#load-admin').click();
  const bobSection=a.p.locator('#admin-content section').filter({hasText:'bob@example.test'});
  await bobSection.getByRole('button',{name:'Approve ongoing access',exact:true}).click();
  await bobSection.getByRole('button',{name:'Remove ongoing access',exact:true}).waitFor();
@@ -62,7 +63,7 @@ try{
  await a.p.locator('#invite-email').fill('bob@example.test');await a.p.locator('#create-friend-invite').click();
  await a.p.waitForFunction(()=>document.querySelector('#created-invite').value.includes('#join='));
  const inviteCode=new URLSearchParams(new URL(await a.p.locator('#created-invite').inputValue()).hash.slice(1)).get('join');
- await b.p.locator('#join-code').fill(inviteCode);await b.p.locator('#redeem-code').click();
+ await reveal(b.p,'#join-code');await b.p.locator('#join-code').fill(inviteCode);await b.p.locator('#redeem-code').click();
  await b.p.waitForFunction(()=>document.querySelector('#scan-remaining').textContent.includes('Ongoing access'));
  const info=await b.p.evaluate(()=>fetch('/api/session').then(r=>r.json()));assert.equal(info.account.scanAllowance,null);assert.equal(info.account.role,'member');assert.equal((await b.p.evaluate(()=>PokeSiftCloud.api('inventory'))).cards.length,0);
  await a.p.locator('#close-account').click();await b.p.locator('#close-account').click();
@@ -77,7 +78,7 @@ try{
  await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);
  assert.equal(await second.p.evaluate(async()=>PokeSiftPhotos.digest(await PokeSiftPhotos.get('legacy-one'))),changedHash);
  assert.equal(await second.p.evaluate(async()=>PokeSiftPhotos.digest(await PokeSiftPhotos.get('old-photo'))),migrated.scanPhoto.sha256);
- if(process.env.POKESIFT_SCREENSHOT_DIR){await a.p.locator('#account-button').click();await a.p.screenshot({path:path.join(process.env.POKESIFT_SCREENSHOT_DIR,'cloud-account-mobile.png'),fullPage:true});await a.p.locator('#close-account').click();}
+ if(process.env.POKESIFT_SCREENSHOT_DIR){await closeTools(a.p);await a.p.locator('#account-button').click();await a.p.screenshot({path:path.join(process.env.POKESIFT_SCREENSHOT_DIR,'cloud-account-mobile.png'),fullPage:true});await a.p.locator('#close-account').click();}
  // Soft delete syncs and explicit recovery brings the same card back.
  await a.p.evaluate(()=>{entries=[];save();render()});await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
  await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);assert.equal(await second.p.locator('.card-tile').count(),0);
@@ -90,7 +91,7 @@ try{
  await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);
  assert.equal(await second.p.evaluate(()=>PokeSiftPhotos.getLocal('cloud-retry-photo').then(Boolean)),false);
  let manualRetries=0;await second.c.route('**/api/identify',r=>{manualRetries++;assert.equal(r.request().headers()['x-pokesift-retry-of'],'blocked-before-policy');assert.notEqual(r.request().headers()['x-request-id'],'blocked-before-policy');assert(r.request().postDataBuffer().equals(Buffer.from(image.split(',')[1],'base64')));return r.fulfill({json:{data:{status:'matched',read:{name:'Recovered Pikachu'},candidates:[]}}});});
- await second.p.locator('#retry-failed-scans').click();assert.match(await second.p.locator('#scan-retry-cost').textContent(),/up to 1 scan/);assert.equal(manualRetries,0);await second.p.locator('#confirm-scan-retries').click();
+ await reveal(second.p,'#retry-failed-scans');await second.p.locator('#retry-failed-scans').click();assert.match(await second.p.locator('#scan-retry-cost').textContent(),/up to 1 scan/);assert.equal(manualRetries,0);await second.p.locator('#confirm-scan-retries').click();
  await second.p.waitForFunction(()=>entries.find(e=>e.id==='cloud-retry-photo')?.status==='matched');assert.equal(manualRetries,1);
  const retryCard=await second.p.evaluate(()=>structuredClone(entries.find(e=>e.id==='cloud-retry-photo')));assert.equal(retryCard.collectorNote,'Keep across retry');assert.equal(retryCard.scanAttempts[0].message,'Earlier allowance failure');assert.equal(retryCard.message,'');
  await second.p.waitForFunction(()=>!retryBatch.running);await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
@@ -120,7 +121,7 @@ try{
  await a.c.unroute('**/api/identify');await a.p.evaluate(()=>{entries=entries.filter(e=>e.id!=='provider-error-photo');save();render();});
  await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
  // Check account UI on phone; cloud sign-out removes only this account cache.
- await a.p.locator('#account-button').click();await a.p.locator('summary').filter({hasText:'Sign out of this device'}).click();await a.p.locator('#account-sign-out').click();await a.p.locator('#google-sign-in').waitFor();assert.equal(await a.p.locator('#collection-view').isVisible(),false);assert.equal(await a.p.evaluate(()=>JSON.parse(localStorage.getItem('pokesift.collection.v1')).entries.length),1);
+ await closeTools(a.p);await a.p.locator('#account-button').click();await a.p.locator('summary').filter({hasText:'Sign out of this device'}).click();await a.p.locator('#account-sign-out').click();await a.p.locator('#google-sign-in').waitFor();assert.equal(await a.p.locator('#collection-view').isVisible(),false);assert.equal(await a.p.evaluate(()=>JSON.parse(localStorage.getItem('pokesift.collection.v1')).entries.length),1);
  assert.equal(paid,0);assert.deepEqual(errors,[]);
  console.log('PASS: two-device cloud sync, complete migration, cloud backup restore and remote retake cache, account isolation, offline merges/conflicts, lost acknowledgements, invites, soft deletion/recovery and sign-out. Zero provider calls.');
 }finally{await browser?.close();server.kill();fs.rmSync(tmp,{recursive:true,force:true});}})().catch(e=>{console.error(e);process.exit(1)});

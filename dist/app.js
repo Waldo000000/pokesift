@@ -22,7 +22,7 @@ let pendingRemovalId=null;
 function notify(message) {
   const toast = $('toast');
   // Native dialogs are in the top layer; put notifications in the active dialog.
-  const host = $('detail-view').open ? $('detail-view') : $('camera-view').open ? $('camera-view') : document.body;
+  const host = $('detail-view').open ? $('detail-view') : $('camera-view').open ? $('camera-view') : document.querySelector('dialog[open]') || document.body;
   host.append(toast); toast.textContent = message; toast.hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, 4500);
 }
@@ -268,6 +268,7 @@ function renderDetail() {
   $('detail-raw').textContent = JSON.stringify({result:e.result || {status:e.status,message:e.message},providerObservations:e.providerObservations || [],catalogMatch:e.catalogMatch || null,identificationMatch:e.identificationMatch || null,scanHistory:e.scanHistory || [],scanAttempts:e.scanAttempts || [],scanPhoto:e.scanPhoto || {quality:'thumbnail_only',note:'Scan-quality photo was not retained for this older entry.'}},null,2);
   $('raw-details').hidden = busyStates.has(e.status);
   renderRemoval(e);
+  window.PokeSiftWorkspace?.renderDetail(e);
   window.PokeSiftCardDetails?.render(e);
 }
 $('valuation-choice').onchange = event => {

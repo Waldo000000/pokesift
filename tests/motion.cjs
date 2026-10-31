@@ -1,3 +1,4 @@
+const {reveal}=require('./ui.cjs');
 const {chromium}=require('playwright'),{spawn}=require('node:child_process');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8799';
@@ -24,31 +25,31 @@ try{
     assert.equal(frames.some(p=>p>start-1&&p<start),animated,'Fan motion must follow the app preference');
   }
   await fanMove(true);
-  await page.locator('[data-motion-choice]').selectOption('reduced');await fanMove(false);
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('reduced');await fanMove(false);
   assert.equal(await page.locator('#motion-probe').evaluate(n=>getComputedStyle(n).transitionDuration),'0s');
   await page.reload();assert.equal(await page.locator('[data-motion-choice]').inputValue(),'reduced');assert.equal(await page.evaluate(()=>PokeSiftMotion.matches),true);
-  await page.locator('[data-motion-choice]').selectOption('full');await fanMove(true);
-  await page.locator('[data-motion-choice]').selectOption('system');await fanMove(false);
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('full');await fanMove(true);
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('system');await fanMove(false);
   await page.emulateMedia({reducedMotion:'no-preference'});await fanMove(true);
   await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.evaluate(()=>PokeSiftMotion.matches),true);
-  await page.locator('[data-motion-choice]').selectOption('full');
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('full');
   await page.goto(base+'/concepts/binder.html');await page.locator('#next-page').click();
   assert.equal(await page.locator('.turning-sheet').count(),1,'Binder turn must animate with OS Reduce Motion on');await page.waitForTimeout(800);
-  await page.locator('[data-motion-choice]').selectOption('reduced');await page.locator('#next-page').click();assert.equal(await page.locator('.turning-sheet').count(),0);
-  await page.locator('[data-motion-choice]').selectOption('full');await page.goto(base+'/concepts/zoo.html');
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('reduced');await page.locator('#next-page').click();assert.equal(await page.locator('.turning-sheet').count(),0);
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('full');await page.goto(base+'/concepts/zoo.html');
   await page.locator('[data-pokemon="25"]').focus();await page.locator('[data-pokemon="25"]').press('Enter');
   assert(await page.locator('[data-pokemon="25"] img').evaluate(n=>n.getAnimations().length>0),'Zoo tap animation must run with full app motion');
-  await page.keyboard.press('Escape');await page.locator('[data-motion-choice]').selectOption('reduced');
+  await page.keyboard.press('Escape');await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('reduced');
   await page.locator('[data-pokemon="25"]').press('Enter');assert.equal(await page.locator('[data-pokemon="25"] img').evaluate(n=>n.getAnimations().length),0);
-  await page.keyboard.press('Escape');await page.locator('[data-motion-choice]').selectOption('full');
+  await page.keyboard.press('Escape');await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('full');
   await page.goto(base+'/concepts/card-study.html');await page.evaluate(()=>{window.tiltFrames=[];function tick(){tiltFrames.push(parseFloat(document.querySelector('#card').style.getPropertyValue('--card-ry'))||0);window.tiltRAF=requestAnimationFrame(tick);}tick();});
   await page.locator('#card').press('ArrowRight');await page.waitForTimeout(700);const tilt=await page.evaluate(()=>{cancelAnimationFrame(tiltRAF);return tiltFrames;});assert(tilt.some(x=>x>0&&x<6),'Card tilt should interpolate with full app motion');
-  await page.locator('[data-motion-choice]').selectOption('reduced');await page.locator('#card').press('Home');await page.locator('#card').press('ArrowRight');assert.equal(await page.locator('#card').evaluate(n=>n.style.getPropertyValue('--card-ry')),'6deg');
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('reduced');await page.locator('#card').press('Home');await page.locator('#card').press('ArrowRight');assert.equal(await page.locator('#card').evaluate(n=>n.style.getPropertyValue('--card-ry')),'6deg');
   // Parent and collection iframe share changes immediately; no reload needed.
   await page.evaluate(()=>{const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j3X8AAAAASUVORK5CYII=';localStorage.setItem('pokesift.collection.v1',JSON.stringify({version:1,entries:[{id:'motion-fixture',status:'matched',thumbnail:image,canonicalImage:image,result:{data:{read:{game:'pokemon',name:'Pikachu'},candidates:[{name:'Pikachu',prices:[]}]}}}]}));});
   await page.goto(base);await page.locator('[data-collection-view="desk"]').click();const room=page.frameLocator('#collection-room');await room.locator('body.live-collection').waitFor();
   assert.equal(await room.locator('html').getAttribute('data-motion'),'reduced');
-  await page.locator('[data-motion-choice]').selectOption('full');assert.equal(await room.locator('html').getAttribute('data-motion'),'full');
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('full');assert.equal(await room.locator('html').getAttribute('data-motion'),'full');
   const other=await context.newPage();await other.goto(base+'/concepts/desk.html');await other.locator('[data-motion-choice]').selectOption('reduced');
   await page.waitForFunction(()=>PokeSiftMotion.matches);assert.equal(await room.locator('html').getAttribute('data-motion'),'reduced');
   assert.equal(await page.locator('[data-motion-choice]').inputValue(),'reduced');

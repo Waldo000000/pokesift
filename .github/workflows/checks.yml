@@ -44,3 +44,4 @@ jobs:
       - run: npm run test:retries
       - run: npm run test:chinese-images
       - run: npm run test:catalog-review
+      - run: npm run test:workspace

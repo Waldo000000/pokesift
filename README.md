@@ -2,7 +2,7 @@
 
 A camera-first Pokémon collection app: scan cards in succession, watch their values arrive, then browse your collection. Supports Chinese printing lookups, canonical card images, AUD valuations and complete browser-local backups.
 
-**Development app:** https://pokesift-dev.onrender.com/ — access requires a short-lived pairing invite from an existing device or the server administrator.
+**Development app:** https://pokesift-dev.onrender.com/ — sign in with Google when cloud accounts are enabled. Device pairing remains available in local mode.
 
 ## Cloud account rollout
 
@@ -28,16 +28,16 @@ Cards marked **Check the match** now show saved catalog candidates with image pr
 
 ## Using the app
 
-1. Scan a pairing QR to remember your device for 30 days. A paired device can use **Add another device** to create another ten-minute invite.
+1. Sign in with Google for your synced collection. In local mode, scan a pairing QR to remember your device for 30 days; **Collection tools → Add another device** creates a ten-minute invite.
 2. Open **Add cards** and take photos repeatedly, or select several existing photos. Up to two scans run concurrently; results and values appear in the camera tray without interrupting capture.
 3. Close the camera and choose **All cards**, **Binder**, **Fan** or **Pokémon Zoo** to browse your saved collection. Closing the camera stops video capture but lets queued scans finish; keep the page open until they complete.
 4. Review uncertain Chinese printing matches and confirm the correct card. Unsupported or unpriced cards stay in the collection with **Value unknown** and the identification details available so far.
 5. For **Retake suggested**, choose **Retake photo** on the collection card or in its details. The next capture updates that entry; opening or cancelling the camera uses no scan. Submitting a new photo uses one scan. Previous captures and provider responses remain in the backup.
    For **Scan failed** or **Scan interrupted**, open the card and choose **Retry scan** to reuse its original saved photo. The same card is updated and earlier failure details are retained. A completed failed attempt can use another scan; cloud retries recover completed results without spending again and refuse another provider call while an earlier submission is uncertain. If the original photo is missing, choose **Choose another photo** to replace it on the same card.
-6. Use the bulk **Retry** button beside **Update missing prices** to retry failed/interrupted cards and restore missing catalog artwork for already identified Chinese cards together. Image-only repairs say **Retry missing catalog images** and use zero photo scans; mixed batches confirm photo scans separately from image repairs. Confirm the maximum possible scan use before starting. It checks the selected cards one at a time, skips missing photos, preserves existing card IDs and notes, and shows progress. **Stop retries** keeps completed results and cancels waiting work; a submitted scan is allowed to finish. Provider, account or connection failures stop the batch. New failures added later are not included without another confirmation. Reloading never resumes a batch automatically.
-7. Use **Back up collection** regularly. Collections belong to this browser; pairing another device does not synchronize them.
+6. Open the **••• Collection tools → Repair and update** section for bulk **Retry** and **Update missing prices**. Retry failed/interrupted cards and restore missing catalog artwork for already identified Chinese cards together. Image-only repairs say **Retry missing catalog images** and use zero photo scans; mixed batches confirm photo scans separately from image repairs. Confirm the maximum possible scan use before starting. It checks the selected cards one at a time, skips missing photos, preserves existing card IDs and notes, and shows progress. **Stop retries** keeps completed results and cancels waiting work; a submitted scan is allowed to finish. Provider, account or connection failures stop the batch. New failures added later are not included without another confirmation. Reloading never resumes a batch automatically.
+7. Use **Collection tools → Back up collection** for a complete portable backup. Cloud accounts sync across signed-in devices; local-mode device pairing grants access without synchronizing collections. **Restore backup**, animation preferences, exchange rates and sample demos are also in Collection tools. The profile icon opens account access, invitations and admin controls.
 
-Matched cards show a value directly in the collection and camera tray. Where multiple positive quotes exist, the default is the lowest estimate. The card detail selector lets you choose a particular printing/condition quote instead; that choice survives price changes, reloads and backups. Unconfirmed candidates never supply a valuation. Prices are catalog references, not an assessment of the physical card's condition, grade or authenticity.
+Matched cards show a value directly in the collection and camera tray. Where multiple positive quotes exist, the default is the lowest estimate. Open **Value and price details** in the card dialog to choose a particular printing/condition quote instead; that choice survives price changes, reloads and backups. The dialog puts a large card image, identity and value first, with finish, species, identification evidence and **Card actions** in expandable sections. Unconfirmed candidates never supply a valuation. Prices are catalog references, not an assessment of the physical card's condition, grade or authenticity.
 
 Live camera captures use a portrait frame with the proportions of a Pokémon card (63:88), including on landscape laptop webcams. Only the area shown in that preview is uploaded. Keep all four card edges inside the guides and use **＋ / −** to adjust framing from 1× to 3× before capturing. This is a digital crop; moving the card closer still helps retain readable detail. Framing adjustments use no API requests. Imported photos retain their original framing.
 
@@ -47,6 +47,8 @@ Camera uploads retain their source dimensions, crop rectangle and zoom in the co
 
 ## Browsing your collection
 
+The compact header keeps **Add cards** and view navigation available. Fan, Binder and Zoo use the remaining viewport; **Sort & filter**, **Help & options** and **Filter & arrange** hold their secondary controls and instructions. Search stays directly available in Fan and Zoo. Recent camera results remain visible alongside capture controls.
+
 The home-page tabs use your actual saved cards, images and AUD valuations:
 
 - **Binder:** a physical simulation with at least 20 pages and two stacks. New cards join stack one. Drag cards out of sleeves in any direction, drop them in empty pockets or on either stack, and turn pages with a short horizontal or diagonal tug from a corner or an empty pocket. Occupied pockets cannot be swapped. Landscape tablets show a two-page spread. Corners stay natural, with invisible grab targets and a visible keyboard focus outline. Three panels bend at the pocket gutters while artwork stays flat; destination pages are prepared and decoded before the animated sheet is removed, avoiding a blank handoff. Pointer movement is rendered once per frame using transforms, with one copy of each card per face. Tap a card for placement actions and full details.
@@ -55,7 +57,7 @@ The home-page tabs use your actual saved cards, images and AUD valuations:
 
 Binder placements and Zoo positions save with the collection and travel in backups. Browsing does not spend identification or pricing credits. The Zoo uses a bundled multilingual index of 1,025 Pokémon species, plus public [PokéAPI artwork](https://github.com/PokeAPI/sprites) fetched through an authenticated, cached endpoint. No new API key is needed. It groups species, not every regional form or artwork variation. The **Pokémon in this card** section in card details lets you correct a detected species, assign multiple species, or exclude a trainer/energy card. Unidentified cards remain available in the Binder and Fan.
 
-The home page also links to the separate sample-card [Binder](https://pokesift-dev.onrender.com/concepts/binder.html), [Fan](https://pokesift-dev.onrender.com/concepts/desk.html) and [Zoo](https://pokesift-dev.onrender.com/concepts/zoo.html) prototypes. Their demo arrangements are isolated from your collection.
+**Collection tools → Design playground** links to the separate sample-card [Binder](https://pokesift-dev.onrender.com/concepts/binder.html), [Fan](https://pokesift-dev.onrender.com/concepts/desk.html) and [Zoo](https://pokesift-dev.onrender.com/concepts/zoo.html) prototypes. Their demo arrangements are isolated from your collection.
 
 ## Identification, images and prices
 

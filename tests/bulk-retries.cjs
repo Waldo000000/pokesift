@@ -1,3 +1,4 @@
+const {reveal,openTools,closeTools,roomOptions,closeRoomOptions}=require('./ui.cjs');
 // Real browser interactions, saved photos and queue scheduling; no live providers.
 const {chromium}=require('playwright');
 const {spawn,execFileSync}=require('node:child_process');
@@ -31,7 +32,7 @@ const matched={data:{status:'matched',read:{name:'Recovered card'},candidates:[]
       },{count,image,missing,identified});
       return {c,p};
     }
-    async function start(p){await p.locator('#retry-failed-scans').click();await p.locator('#confirm-scan-retries').click();}
+    async function start(p){await reveal(p,'#retry-failed-scans');await p.locator('#retry-failed-scans').click();await p.locator('#confirm-scan-retries').click();}
     async function finished(p){await p.waitForFunction(()=>!retryBatch.running&&retryBatch.message,{},{timeout:30000});}
     // Confirmation uses a fixed selection. More than the upload queue's 20-card
     // capacity is processed gradually, while missing and changed cards are skipped.
@@ -41,12 +42,12 @@ const matched={data:{status:'matched',read:{name:'Recovered card'},candidates:[]
       assert(r.request().postDataBuffer().equals(Buffer.from(image.split(',')[1],'base64')));
       await new Promise(resolve=>setTimeout(resolve,20));inflight--;return r.fulfill({json:matched});
     });
-    await all.p.locator('#retry-failed-scans').click();assert.match(await all.p.locator('#scan-retry-cost').textContent(),/up to 24 scans/);assert.equal(calls,0);
+    await reveal(all.p,'#retry-failed-scans');await all.p.locator('#retry-failed-scans').click();assert.match(await all.p.locator('#scan-retry-cost').textContent(),/up to 24 scans/);assert.equal(calls,0);
     assert.equal(await all.p.evaluate(()=>document.activeElement.id),'cancel-scan-retries');
     await all.p.locator('#scan-retry-confirmation').screenshot({path:'/tmp/pokesift-bulk-retry-confirmation.png'});
     await all.p.locator('#cancel-scan-retries').click();assert.equal(calls,0);assert(await all.p.locator('#scan-retry-confirmation').isHidden());
-    await all.p.locator('#retry-failed-scans').click();await all.p.keyboard.press('Escape');assert(await all.p.locator('#scan-retry-confirmation').isHidden());assert.equal(calls,0);
-    await all.p.locator('#retry-failed-scans').click();
+    await reveal(all.p,'#retry-failed-scans');await all.p.locator('#retry-failed-scans').click();await all.p.keyboard.press('Escape');assert(await all.p.locator('#scan-retry-confirmation').isHidden());assert.equal(calls,0);
+    await reveal(all.p,'#retry-failed-scans');await all.p.locator('#retry-failed-scans').click();
     await all.p.evaluate(image=>{entries.find(e=>e.id==='failed-22').status='matched';entries.push({id:'later-failure',status:'error',thumbnail:image});save();render();},image);
     await all.p.evaluate(()=>{document.querySelector('#confirm-scan-retries').click();document.querySelector('#confirm-scan-retries').click();});await finished(all.p);
     assert.equal(calls,22);assert.equal(maxInflight,1);assert.match(await all.p.locator('#bulk-retry-status').textContent(),/24 of 24 cards checked.*22 identified.*1 photos missing.*1 changed/);
@@ -58,7 +59,7 @@ const matched={data:{status:'matched',read:{name:'Recovered card'},candidates:[]
     const stopped=await setup(4);let stopCalls=0,release;
     await stopped.c.route('**/api/identify',async r=>{stopCalls++;await new Promise(resolve=>release=resolve);return r.fulfill({json:matched});});
     await start(stopped.p);await stopped.p.waitForFunction(()=>entries.some(e=>e.status==='scanning'));while(!release)await new Promise(r=>setTimeout(r,10));
-    await stopped.p.locator('#stop-scan-retries').click();release();await finished(stopped.p);
+    await reveal(stopped.p,'#stop-scan-retries');await stopped.p.locator('#stop-scan-retries').click();release();await finished(stopped.p);
     assert.equal(stopCalls,1);assert.match(await stopped.p.locator('#bulk-retry-status').textContent(),/Stopped.*1 of 4/);
     // Reload finishes before the asynchronous session check necessarily does.
     // Assert restoration after the collection is ready, even with slow auth.
@@ -84,8 +85,8 @@ const matched={data:{status:'matched',read:{name:'Recovered card'},candidates:[]
       const test=await setup(2);let attempts=0,allow;
       await test.c.route('**/api/identify',async r=>{attempts++;if(mode==='during-request')await new Promise(resolve=>allow=resolve);return r.fulfill({status:429,headers:{'X-PokeSift-Scan-Throttled':'1'},json:{error:{code:'scan_throttled',retryAfter:60,message:'Wait'}}});});
       await start(test.p);
-      if(mode==='during-request'){while(!allow)await new Promise(r=>setTimeout(r,10));await test.p.locator('#stop-scan-retries').click();allow();}
-      else{await test.p.waitForFunction(()=>jobs.length===1&&entries[0].status==='queued');await test.p.locator('#stop-scan-retries').click();}
+      if(mode==='during-request'){while(!allow)await new Promise(r=>setTimeout(r,10));await reveal(test.p,'#stop-scan-retries');await test.p.locator('#stop-scan-retries').click();allow();}
+      else{await test.p.waitForFunction(()=>jobs.length===1&&entries[0].status==='queued');await reveal(test.p,'#stop-scan-retries');await test.p.locator('#stop-scan-retries').click();}
       await finished(test.p);assert.equal(attempts,1);assert.equal(await test.p.evaluate(()=>jobs.length),0);assert.equal(await test.p.evaluate(()=>entries[0].status),'error');await test.c.close();
     }
     assert.equal(unexpected,0);assert.deepEqual(errors,[]);

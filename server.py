@@ -228,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
         files.update({f'/concepts/card-study.{ext}': (f'concepts/card-study.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files['/card-details.js'] = ('card-details.js', 'text/javascript')
         files.update({f'/motion.{ext}': (f'motion.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
+        files.update({f'/workspace.{ext}': (f'workspace.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/card-effects.{ext}': (f'card-effects.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/{name}': (name,mime) for name,mime in [('account.js','text/javascript'),('cloud-sync.js','text/javascript'),('cloud.css','text/css'),('privacy.html','text/html; charset=utf-8')]})
         if self.path in files:
