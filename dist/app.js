@@ -271,7 +271,7 @@ $('valuation-choice').onchange = event => {
   else delete e.selectedPriceKey;
   save(); render();
 };
-function openDetail(id) { pendingRemovalId=null;focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) $('detail-view').showModal(); }
+function openDetail(id) { pendingRemovalId=null;focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) $('detail-view').showModal();const e=entries.find(e=>e.id===id);if(e?.status==='matched'&&e.catalogMatch&&!e.canonicalImage)cacheCanonicalImage(e); }
 $('toggle-photo').onclick = () => { showCapturedPhoto = !showCapturedPhoto; renderDetail(); };
 $('close-detail').onclick = () => $('detail-view').close();
 $('detail-view').addEventListener('close',() => { focusedId = null;pendingRemovalId=null; });
@@ -413,27 +413,40 @@ function pump() {
     runJob(job).then(result=>{if(!result?.requeued)job.complete?.(result||{skipped:true});},error=>job.complete?.({error:true,stop:true,reason:error.message})).finally(() => { active--; render(); pump(); });
   }
 }
-async function cacheCanonicalImage(e) {
+const canonicalImageRequests=new WeakMap();
+function canonicalImageURL(e) {
   const card = cardOf(e), id = card?.tcgplayer_id;
-  if (e.status !== 'matched') return;
   const chinese = e.catalogMatch?.card?.provider_id;
-  if (!chinese && !/^[1-9][0-9]{0,9}$/.test(String(id || ''))) return;
-  const url = chinese ? '/api/pikaqian-image?id='+encodeURIComponent(chinese) : '/api/card-image?id='+encodeURIComponent(id);
+  if (busyStates.has(e.status)||(e.status !== 'matched'&&!chinese)) return null;
+  if (!chinese && !/^[1-9][0-9]{0,9}$/.test(String(id || ''))) return null;
+  return chinese ? '/api/pikaqian-image?id='+encodeURIComponent(chinese) : '/api/card-image?id='+encodeURIComponent(id);
+}
+function cacheCanonicalImage(e,{force=false}={}) {
+  const url=canonicalImageURL(e);if(!url||readOnlyStorage)return Promise.resolve(false);
+  const previous=canonicalImageRequests.get(e);
+  if(previous?.url===url){if(previous.promise)return previous.promise;if(!force&&previous.failed&&Date.now()-previous.at<60000)return Promise.resolve(false);}
+  const state={url,at:Date.now(),promise:null};canonicalImageRequests.set(e,state);
+  state.promise=downloadCanonicalImage(e,url).then(success=>{state.failed=!success;return success;}).finally(()=>{state.promise=null;});return state.promise;
+}
+async function downloadCanonicalImage(e,url) {
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(),20000);
   try {
     const response = await fetch(url,{credentials:'same-origin',signal:controller.signal});
-    if (!response.ok) return;
+    if (!response.ok) return false;
     const {thumbnail} = await preparePhoto(await response.blob());
-    if (!entries.some(item => item.id === e.id)) return;
+    if (!entries.includes(e)||canonicalImageURL(e)!==url) return false;
     e.canonicalImage = thumbnail;
+    if(e.catalogMatch){e.status='matched';e.message='';}
     save(); render();
     if ($('latest-name').textContent === titleOf(e)) $('latest-photo').src = thumbnail;
-  } catch { /* Keep the captured photo; image failure never changes scan results. */ }
+    return true;
+  } catch {return false; /* Keep the captured photo; image failure never changes scan results. */ }
   finally { clearTimeout(timeout); }
 }
 async function runJob(job) {
   const {id,blob,retryOf}=job,requestId=job.requestId ||= crypto.randomUUID();
   const e = entries.find(entry => entry.id === id); if (!e) return;
+  canonicalImageRequests.delete(e);
   e.status = 'scanning';e.scanRequestId=requestId;save(); render();
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(),60000);
   let responseStatus=0,pendingResult=false;
@@ -482,7 +495,7 @@ function storeCatalogResult(e, result, loadImages=true) {
   e.providerObservations = [...(e.providerObservations || []),...result.candidates.map(c=>structuredClone(c.observation))];
   const previous = e.enrichment.candidates.find(c=>c.card.provider_id===e.catalogMatch?.card.provider_id);
   if (previous) {
-    e.catalogMatch.card = previous.card; e.currencyAssumed=false; e.enrichment.status='matched';
+    e.catalogMatch.card = previous.card; e.status='matched';e.message='';e.currencyAssumed=false; e.enrichment.status='matched';
     if(loadImages)cacheCanonicalImage(e);
   } else if (result.status === 'matched' && result.candidates.length === 1) applyCatalogMatch(e,e.enrichment.candidates[0],'catalog_fields',loadImages);
   else if(loadImages && result.status==='review')e.enrichment.candidates.forEach(candidate=>previewCatalogCandidate(e,candidate));
@@ -537,21 +550,28 @@ function renderBulkPrices() {
   $('stop-price-update').textContent=priceBatch.stop?'Stopping after current lookup…':'Stop update';
   $('bulk-price-status').textContent=priceBatch.message || (count ? count+' saved card lookups ready. Older unrecognized cards are included when their name and number were saved.' : !entries.length ? 'Add cards to your collection to get started.' : reviewCount ? reviewCount+' cards need a printing confirmed. Open them in To review and choose “This is my printing”.' : 'No eligible updates. Cards need a saved name and number or a confirmed Chinese match. No-match and no-sales results wait 24 hours.');
 }
+function bulkRetryTargets() {
+  const images=entries.filter(e=>!busyStates.has(e.status)&&e.catalogMatch?.card?.provider==='pikaqian'&&!e.canonicalImage).map(e=>({id:e.id,kind:'image',source:e.catalogMatch.card.provider_id}));
+  const imageIds=new Set(images.map(e=>e.id));
+  const scans=entries.filter(e=>failedStates.has(e.status)&&!imageIds.has(e.id)).map(e=>({id:e.id,kind:'scan'}));
+  return [...images,...scans];
+}
 function renderBulkRetries() {
-  const count=entries.filter(e=>failedStates.has(e.status)).length,busy=active||jobs.length||pendingPreparation;
-  $('retry-failed-scans').textContent=retryBatch.running?'Retrying failed scans…':'Retry failed scans'+(count?' ('+count+')':'');
+  const targets=bulkRetryTargets(),count=targets.length,scans=targets.filter(t=>t.kind==='scan').length,images=count-scans,busy=active||jobs.length||pendingPreparation;
+  const label=images?(scans?'Retry scans and images':'Retry missing catalog images'):'Retry failed scans';
+  $('retry-failed-scans').textContent=retryBatch.running?'Retrying scans and images…':label+(count?' ('+count+')':'');
   $('retry-failed-scans').disabled=retryBatch.running||priceBatch.running||readOnlyStorage||Boolean(busy)||!count;
   $('stop-scan-retries').hidden=!retryBatch.running;
   $('stop-scan-retries').disabled=Boolean(retryBatch.stop);
-  $('stop-scan-retries').textContent=retryBatch.stop?'Stopping after current scan…':'Stop retries';
-  $('bulk-retry-status').textContent=retryBatch.message||(count?count+' failed or interrupted cards can be retried using their saved photos.':'No failed scans to retry.');
+  $('stop-scan-retries').textContent=retryBatch.stop?'Stopping after current card…':'Stop retries';
+  $('bulk-retry-status').textContent=retryBatch.message||(count?scans+' failed scans · '+images+' missing Chinese catalog images. Image repairs use no photo scans.':'No failed scans or missing Chinese catalog images.');
   $('scan-retry-confirmation').hidden=!retryConfirmation;
   $('retry-failed-scans').setAttribute('aria-expanded',String(Boolean(retryConfirmation)));
   if(retryConfirmation){
-    const total=retryConfirmation.length;
-    $('scan-retry-title').textContent='Retry '+total+' failed '+(total===1?'card':'cards')+'?';
-    $('scan-retry-cost').textContent='This may use up to '+total+' '+(total===1?'scan':'scans')+'. Saved results may be recovered without a new scan. Missing photos will be skipped. Identified cards will stay as they are.';
-    $('confirm-scan-retries').textContent='Retry '+total+' '+(total===1?'card':'cards');
+    const total=retryConfirmation.length,scanCount=retryConfirmation.filter(t=>t.kind==='scan').length,imageCount=total-scanCount;
+    $('scan-retry-title').textContent=scanCount?'Retry '+scanCount+' failed '+(scanCount===1?'card':'cards')+(imageCount?' and restore '+imageCount+' catalog images':'')+'?':'Restore '+imageCount+' catalog '+(imageCount===1?'image':'images')+'?';
+    $('scan-retry-cost').textContent=(scanCount?'This may use up to '+scanCount+' '+(scanCount===1?'scan':'scans')+'. Saved results may be recovered without a new scan. Missing photos will be skipped. ':'No photo scans will be used. ')+(imageCount?imageCount+' Chinese catalog '+(imageCount===1?'image':'images')+' will be repaired without rescanning identified cards. Their matches and original photos will be kept.':'Identified cards will stay as they are.');
+    $('confirm-scan-retries').textContent=scanCount?'Retry '+total+' '+(total===1?'card':'cards'):'Restore '+imageCount+' '+(imageCount===1?'image':'images');
     $('confirm-scan-retries').disabled=retryBatch.running||priceBatch.running||readOnlyStorage||Boolean(busy);
   }
 }
@@ -561,21 +581,25 @@ function stopScanRetries(){
   retryBatch.stop=true;retryBatch.wake?.();retryBatch.cancelQueued?.();renderBulkRetries();
 }
 function retryBatchSummary(batch){
-  return `${batch.checked} of ${batch.total} cards checked · ${batch.identified} identified`+
+  return `${batch.checked} of ${batch.total} cards checked`+(batch.scanTotal?' · '+batch.identified+' identified':'')+(batch.images?' · '+batch.images+' images restored':'')+
     (batch.review?' · '+batch.review+' need review':'')+(batch.missing?' · '+batch.missing+' photos missing':'')+
     (batch.pending?' · '+batch.pending+' awaiting earlier results':'')+(batch.errors?' · '+batch.errors+' failed':'')+(batch.skipped?' · '+batch.skipped+' changed or already handled':'');
 }
 function waitForRetryBatch(batch){return new Promise(resolve=>{const timer=setTimeout(()=>{batch.wake=null;resolve();},550);batch.wake=()=>{clearTimeout(timer);batch.wake=null;resolve();};});}
 async function retryFailedScans() {
   if(!retryConfirmation||retryBatch.running||priceBatch.running||readOnlyStorage||active||jobs.length||pendingPreparation)return;
-  const ids=retryConfirmation;retryConfirmation=null;
-  const batch=retryBatch={running:true,stop:false,total:ids.length,checked:0,identified:0,review:0,missing:0,pending:0,errors:0,skipped:0,consecutive:0,message:'Starting scan retries…'};
+  const targets=retryConfirmation;retryConfirmation=null;
+  const batch=retryBatch={running:true,stop:false,total:targets.length,scanTotal:targets.filter(t=>t.kind==='scan').length,checked:0,identified:0,images:0,review:0,missing:0,pending:0,errors:0,skipped:0,consecutive:0,message:'Starting scan and image retries…'};
   render();
   try {
-    for(const id of ids){
+    for(const target of targets){
       if(batch.stop||document.hidden||readOnlyStorage||document.body.dataset.auth!=='signed-in')break;
       let result;
-      do {result=await retryScan(id,batch);if(result.busy&&!batch.stop)await waitForRetryBatch(batch);}while(result.busy&&!batch.stop&&!document.hidden&&!readOnlyStorage&&document.body.dataset.auth==='signed-in');
+      if(target.kind==='image'){
+        const e=entries.find(e=>e.id===target.id);
+        if(!e||busyStates.has(e.status)||e.catalogMatch?.card?.provider_id!==target.source||e.canonicalImage)result={skipped:true};
+        else result=await cacheCanonicalImage(e,{force:true})?{image:true}:{error:true,reason:'Catalog image unavailable. Your saved match and photo have been kept.'};
+      }else do {result=await retryScan(target.id,batch);if(result.busy&&!batch.stop)await waitForRetryBatch(batch);}while(result.busy&&!batch.stop&&!document.hidden&&!readOnlyStorage&&document.body.dataset.auth==='signed-in');
       batch.cancelQueued=null;
       if(result.cancelled||result.busy)break;
       batch.checked++;
@@ -583,6 +607,7 @@ async function retryFailedScans() {
       else if(result.pending)batch.pending++;
       else if(result.error)batch.errors++;
       else if(result.skipped)batch.skipped++;
+      else if(result.image)batch.images++;
       else if(result.status==='matched')batch.identified++;
       else batch.review++;
       batch.consecutive=result.error&&!result.pending?batch.consecutive+1:0;
@@ -596,7 +621,7 @@ async function retryFailedScans() {
     batch.message=(batch.reason||(batch.stop||batch.checked<batch.total?'Stopped. Completed results are saved.':'Finished.'))+' '+retryBatchSummary(batch);render();
   }
 }
-$('retry-failed-scans').onclick=()=>{if(retryBatch.running||priceBatch.running||readOnlyStorage||active||jobs.length||pendingPreparation)return;retryConfirmation=entries.filter(e=>failedStates.has(e.status)).map(e=>e.id);if(!retryConfirmation.length){retryConfirmation=null;return;}renderBulkRetries();$('scan-retry-confirmation').scrollIntoView({block:'nearest'});$('cancel-scan-retries').focus({preventScroll:true});};
+$('retry-failed-scans').onclick=()=>{if(retryBatch.running||priceBatch.running||readOnlyStorage||active||jobs.length||pendingPreparation)return;retryConfirmation=bulkRetryTargets();if(!retryConfirmation.length){retryConfirmation=null;return;}renderBulkRetries();$('scan-retry-confirmation').scrollIntoView({block:'nearest'});$('cancel-scan-retries').focus({preventScroll:true});};
 $('cancel-scan-retries').onclick=cancelRetryConfirmation;
 $('scan-retry-confirmation').onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();cancelRetryConfirmation();}};
 $('confirm-scan-retries').onclick=retryFailedScans;

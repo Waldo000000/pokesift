@@ -40,3 +40,4 @@ jobs:
       - run: npm run test:motion
       - run: npm run test:cloud
       - run: npm run test:retries
+      - run: npm run test:chinese-images

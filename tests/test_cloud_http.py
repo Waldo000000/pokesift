@@ -158,3 +158,29 @@ class CloudHTTPTests(unittest.TestCase):
         self.assertEqual(first,wrapped('https://example.test/cards',key))
         self.assertEqual(json.loads(first[1]),{'[REDACTED]':['[REDACTED]']})
         self.assertEqual(len(calls),1)
+
+    def test_chinese_image_uses_authenticated_route_and_opaque_keyless_download(self):
+        card='db119de9-d875-467c-b962-4bdbdd7dc7ee'
+        image='https://images.pikaqian.com/originals/csvh5c/'+card+'.png'
+        calls=[]
+        def transport(url,key=None):
+            calls.append((url,key))
+            if url==image:return 200,PNG,'image/png'
+            self.assertEqual(url,'https://api.pikaqian.com/v1/cards/'+card)
+            return 200,json.dumps({'id':card,'image_url':image}).encode(),'application/json'
+        self.server.pikaqian.key='private-pika-fixture-key'
+        self.server.pikaqian.transport=self.cloud.wrap_lookup(transport)
+        route='/api/pikaqian-image?id='+card
+        self.assertEqual(self.request(route,cookie='')[0],401)
+        self.assertEqual(calls,[])
+        status,body,headers=self.request(route)
+        self.assertEqual(status,200);self.assertEqual(body,PNG)
+        self.assertIn(('Content-Type','image/png'),headers)
+        self.assertEqual(calls[-1],(image,None),'The provider key must never be sent to the image CDN')
+        self.store.limits['provider_calls_enabled']=0
+        self.assertEqual(self.request(route)[:2],(200,PNG))
+        self.assertEqual(len(calls),3,'One cached metadata lookup and two binary downloads')
+        self.assertEqual(self.store.account_info(self.a)['scansUsed'],0)
+        with self.store.db.transaction() as q:
+            records=q('SELECT provider FROM cloud_paid_requests WHERE owner_id=?',(self.a,)).fetchall()
+        self.assertEqual([r['provider'] for r in records],['pikaqian'],'CDN downloads must not reserve catalog or photo credits')

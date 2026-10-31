@@ -170,10 +170,13 @@ class CloudHTTP:
         return wrapped
 
     def wrap_lookup(self,transport):
-        def wrapped(url,key):
+        def wrapped(url,key=None):
             from pikaqian import ProviderError
             account=self.context.get()
             if not account:raise ProviderError('rate_limited')
+            # PikaQian validates its fixed CDN URL before fetching an image.
+            # Images are opaque bytes, carry no key and use no catalog/scan credit.
+            if key is None:return transport(url)
             owner,rid=account;subid=digest(rid+'\n'+url)
             try:cached=self.store.reserve_paid(owner,subid,'pikaqian',digest(url))
             except CloudError:raise ProviderError('rate_limited') from None

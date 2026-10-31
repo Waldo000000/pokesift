@@ -10,7 +10,8 @@
     "test:foil": "node tests/card-effects.cjs",
     "test:motion": "node tests/motion.cjs",
     "test:cloud": "node tests/cloud-browser.cjs",
-    "test:retries": "node tests/bulk-retries.cjs"
+    "test:retries": "node tests/bulk-retries.cjs",
+    "test:chinese-images": "node tests/chinese-images.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"
