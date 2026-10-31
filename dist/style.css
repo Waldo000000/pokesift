@@ -31,3 +31,5 @@ body:not([data-auth="signed-in"]) #collection-view,body:not([data-auth="signed-i
 @media(max-width:640px){.detail-dialog .detail-copy{padding:22px}.detail-dialog .detail-image{padding-top:0}.detail-dialog .detail-image .foil-perspective{width:min(290px,64vw)}}
 
 .privacy-page{max-width:720px;margin:40px auto;padding:24px;line-height:1.75}.privacy-page h1{font-size:38px}
+
+.scan-retry-confirmation{margin-top:14px;padding:16px;border:1px solid #bbc8ad;border-radius:12px;background:#edf0e5}.scan-retry-confirmation h3{margin:0;font-size:16px}.scan-retry-confirmation p{font-size:13px;line-height:1.6}.scan-retry-confirmation>div{display:flex;flex-wrap:wrap;align-items:center;gap:16px}.scan-retry-confirmation button{min-height:44px}.scan-retry-confirmation .primary{padding:12px 18px}

@@ -90,10 +90,10 @@ try{
  await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);
  assert.equal(await second.p.evaluate(()=>PokeSiftPhotos.getLocal('cloud-retry-photo').then(Boolean)),false);
  let manualRetries=0;await second.c.route('**/api/identify',r=>{manualRetries++;assert.equal(r.request().headers()['x-pokesift-retry-of'],'blocked-before-policy');assert.notEqual(r.request().headers()['x-request-id'],'blocked-before-policy');assert(r.request().postDataBuffer().equals(Buffer.from(image.split(',')[1],'base64')));return r.fulfill({json:{data:{status:'matched',read:{name:'Recovered Pikachu'},candidates:[]}}});});
- await second.p.evaluate(()=>openDetail('cloud-retry-photo'));await second.p.locator('#retry-scan').click();
+ await second.p.locator('#retry-failed-scans').click();assert.match(await second.p.locator('#scan-retry-cost').textContent(),/up to 1 scan/);assert.equal(manualRetries,0);await second.p.locator('#confirm-scan-retries').click();
  await second.p.waitForFunction(()=>entries.find(e=>e.id==='cloud-retry-photo')?.status==='matched');assert.equal(manualRetries,1);
  const retryCard=await second.p.evaluate(()=>structuredClone(entries.find(e=>e.id==='cloud-retry-photo')));assert.equal(retryCard.collectorNote,'Keep across retry');assert.equal(retryCard.scanAttempts[0].message,'Earlier allowance failure');assert.equal(retryCard.message,'');
- await second.p.locator('#close-detail').click();await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
+ await second.p.waitForFunction(()=>!retryBatch.running);await second.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(second.p);await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
  assert.equal(await a.p.evaluate(()=>entries.filter(e=>e.id==='cloud-retry-photo'&&e.status==='matched').length),1);
  await second.c.unroute('**/api/identify');await a.p.evaluate(()=>{entries=entries.filter(e=>e.id!=='cloud-retry-photo');save();render();});await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
  // Only an explicit, pre-provider throttle is automatically queued again.
