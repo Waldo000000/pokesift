@@ -16,7 +16,7 @@ os.environ['TCGAPI_KEY']='cloud-fixture-key'
 os.environ['PIKAQIAN_API_KEY']=''
 os.environ['POKESIFT_PASSWORD']='cloud-fixture-password'
 db=Database('sqlite:'+str(root/'cloud.sqlite'));db.migrate()
-store=CloudStore(db,limits={'tcgapi_monthly':100,'pikaqian_monthly':100})
+store=CloudStore(db)
 a=store.account('fixture-a','alice@example.test','Alice',True);b=store.account('fixture-b','bob@example.test','Bob',True)
 store.promote_owner('fixture-a')
 (root/'sessions.json').write_text(json.dumps({'alice':store.create_session(a['id']),'bob':store.create_session(b['id']),'aliceId':a['id'],'bobId':b['id']}))

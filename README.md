@@ -13,11 +13,14 @@ continue to use the QR/browser-local mode described below. Live Neon/Google/stor
 verification is still required before activation. See the [exact deployment,
 migration, limits and rollback guide](docs/cloud-deployment.md).
 
-In cloud mode, each person gets a private collection; an invitation grants scans
+In cloud mode, each person gets a private collection; an email-bound invitation grants ongoing scan access
 without sharing anyone else's cards. The migration keeps original device data,
 uploads saved photos and retakes without rescanning, and supports second-device
-backups, offline edits, conflict review and 30-day card recovery. Global paid
-provider budgets default to zero until the owner deliberately sets them.
+backups, offline edits, conflict review and 30-day card recovery. Public accounts get three trial scans with shared daily/monthly safeguards. Approved
+accounts have ongoing access at six scan calls/minute; owners have no lifetime
+quota. Owner tools approve requests by email, issue single-use invitations,
+adjust public pools and pacing, and explicitly pause provider calls. Existing
+provider credits are used when scanning is enabled; provider-side limits still apply.
 
 ## Using the app
 
@@ -177,7 +180,7 @@ print(f'{origin}/#invite={token}')
 PY
 ```
 
-The SVG helper requires HTTPS; the local URL above is for loopback development. Use the deployed HTTPS app for phone camera testing. Real scans consume provider allowance, including some failed or timed-out requests; never retry automatically.
+The SVG helper requires HTTPS; the local URL above is for loopback development. Use the deployed HTTPS app for phone camera testing. Real scans consume provider allowance, including some failed or timed-out requests; never automatically retry an uncertain provider submission. Confirmed pre-provider throttle rejections can safely rejoin the queue.
 
 Run the automated checks without real provider credentials or scans:
 

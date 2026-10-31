@@ -33,7 +33,7 @@ class CloudHTTPTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         db = Database('sqlite:' + str(Path(self.temp.name) / 'db')); db.migrate()
-        self.store = CloudStore(db, limits={'tcgapi_monthly':100, 'pikaqian_monthly':100})
+        self.store = CloudStore(db)
         self.a = self.store.account('alice', 'alice@example.test', 'Alice', True)['id']
         self.b = self.store.account('bob', 'bob@example.test', 'Bob', True)['id']
         self.cookie = '__Host-pokesift-account=' + self.store.create_session(self.a)
@@ -84,6 +84,20 @@ class CloudHTTPTests(unittest.TestCase):
         self.assertEqual(first[:2],second[:2]); self.assertEqual(first[0],200)
         self.assertNotIn(b'fixture-key',first[1]); self.assertEqual(self.calls,[PNG])
         self.assertEqual(self.store.account_info(self.a)['scansUsed'],1)
+
+    def test_approved_throttle_returns_retry_time_without_calling_provider(self):
+        import time
+        now=[int(time.time())];self.store.clock=lambda:now[0]
+        self.store.promote_owner('alice');self.store.admin(self.a,{'action':'access','id':self.b,'approved':True})
+        for i in range(6):
+            now[0]+=2
+            self.assertEqual(self.request('/api/identify',PNG+bytes([i]),cookie=self.other,**{'Content-Type':'image/png','X-Request-ID':'scan-'+str(i)})[0],200)
+        now[0]+=2
+        status,body,headers=self.request('/api/identify',PNG+b'later',cookie=self.other,**{'Content-Type':'image/png','X-Request-ID':'later'})
+        self.assertEqual(status,429);self.assertEqual(json.loads(body)['error']['code'],'scan_throttled')
+        self.assertTrue(any(k.lower()=='retry-after' and int(v)>0 for k,v in headers))
+        self.assertTrue(any(k.lower()=='x-pokesift-scan-throttled' and v=='1' for k,v in headers))
+        self.assertEqual(len(self.calls),6)
 
     def test_callback_needs_single_use_state_and_issues_private_cookie(self):
         callback='/auth/callback?neon_auth_session_verifier=fixture-verifier'

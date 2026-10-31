@@ -38,6 +38,15 @@ class ProviderTests(unittest.TestCase):
             return 200, json.dumps(data).encode(), 'application/json'
         self.provider = PikaQian('private-provider-key', transport)
 
+    def test_cloud_policy_can_replace_legacy_shared_hourly_cap(self):
+        self.provider.hourly_limit=None
+        for i in range(65):self.provider.get('cards/fixture-'+str(i))
+        self.assertEqual(len(self.calls),65)
+        self.price_status=429
+        with self.assertRaises(ProviderError):self.provider.prices(CARD_ID)
+        with self.assertRaises(ProviderError):self.provider.get('cards/another-fixture')
+        self.assertEqual(len(self.calls),66,'Real provider backoff still applies in cloud mode')
+
     def test_exact_printing_and_explicit_usd_cents(self):
         result = self.provider.enrich(READ)
         self.assertEqual(result['status'], 'matched')

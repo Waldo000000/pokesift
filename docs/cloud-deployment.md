@@ -66,8 +66,9 @@ secret values.
    until Google, private media and a two-device sync have passed live checks.
 3. Set `POKESIFT_CLOUD_ENABLED=1` and deploy. Startup validates configuration and
    applies the idempotent initial schema under a PostgreSQL advisory lock.
-   Paid provider budgets default to **zero**, including for the owner, so this
-   verification cannot spend scan/lookup allowance. Failure to start is a reason
+   Use `provider_calls_enabled=0` in the access policy for verification that
+   must not call paid providers. The new policy enables provider use by default;
+   legacy `tcgapi_monthly`/`pikaqian_monthly` zero rows no longer pause accounts. Failure to start is a reason
    to switch the flag back to `0`, not to remove authorization checks.
 4. Sign in with Google on desktop and Safari/iPad. Confirm the callback returns
    to the collection, a reload retains the session, and signing out revokes it.
@@ -91,33 +92,47 @@ secret values.
 7. Exercise an offline edit/reconnect, conflicting edits, removed-card recovery,
    a revoked session and a second account attempting another account's card/media
    URL. No paid provider calls are necessary. Keep source backups until verified.
-8. Set actual affordable provider budgets in **Account → Owner tools**. Alternatively:
+8. Review **Account → Owner tools → Manage access and invitations**. Public
+   accounts get three lifetime scan calls. Their shared pools start at 30 scan
+   calls/day and 300/month. Public catalog pools start at 100 calls/day and
+   1,000/month, with 15 lifetime catalog calls/account. These limits cap exposure
+   across all public Google accounts, rather than multiplying with signup count.
+   A busy public pool can delay legitimate trials; requests for approval remain
+   available, and owners/approved accounts do not consume that pool.
+9. Approved accounts have ongoing access paced at six new scan calls/minute.
+   Owners have no lifetime quota and only the two-calls/second burst guard.
+   An owner can approve requests by the displayed email or create an invitation
+   for a particular Google email. Codes have one use and expire in seven days;
+   redemption grants ongoing access, never another person's collection. Legacy
+   unbound codes must be replaced with addressed invitations.
+
+   Operator examples (credentials stay in the configured environment):
 
    ```sh
-   python scripts/cloud_admin.py budget --name tcgapi_monthly --amount 0
-   python scripts/cloud_admin.py budget --name pikaqian_monthly --amount 0
+   python scripts/cloud_admin.py budget --name provider_calls_enabled --amount 0
+   python scripts/cloud_admin.py budget --name public_daily --amount 30
+   python scripts/cloud_admin.py budget --name approved_per_minute --amount 6
+   # Enable connected provider use deliberately:
+   python scripts/cloud_admin.py budget --name provider_calls_enabled --amount 1
    ```
-
-   Replace zero with deliberate caps based on available provider allowance; do not
-   assume the app knows the purchased balance. Only then test a real scan if needed
-   and share seven-day invitations. The browser defaults to five recipients and
-   a total allowance of 50 scans per invitation, without stacking grants.
 
 ## Limits and sync behaviour
 
-- Verified public accounts receive three lifetime trial scans and share a pool of
-  20 public scans/day. Invited accounts have a total allowance of 50; owners can
-  adjust grants. Owner promotion sets an initial 1,000-scan account allowance,
-  still constrained by the global budget. Monthly provider caps default to zero.
-- Durable reservations count submitted calls, including failures and uncertain
-  outcomes. Repeating a completed request ID replays its result; an uncertain
-  request never silently retries. These counters are guardrails, not provider billing.
-- TCG bursts are limited to two calls/second/account. Actual PikaQian cache misses
-  count against a separate monthly budget, 100/day/account and a shared public
-  pool; existing provider pacing/circuit controls also apply. Creating more
-  accounts cannot multiply the shared spending cap. Signup is limited to 100/day.
-  There is no separate CAPTCHA integration yet; Google identity and fixed shared
-  budgets are the initial controls. Add a bot challenge if registration abuse warrants it.
+- Account approval removes public trial quotas. It does not bypass authorization,
+  disabled-account checks, provider backoff, storage limits, or short burst guards.
+  Existing approved/invited accounts retain ongoing access. Old finite allowance
+  columns and old global monthly budgets are retained for history/rollback; they
+  no longer restrict approved accounts or owners.
+- Durable reservations count submitted calls, including uncertain outcomes.
+  Replaying a completed request ID or an identical photo within five minutes
+  reuses its result. Pending/uncertain requests are never silently resubmitted.
+  Only an explicit pre-provider `scan_throttled` rejection is automatically
+  queued again, with the same request ID and a wait specified by the server.
+- Catalog calls have a 30/minute/account burst guard. The legacy process-wide
+  60/hour limiter is disabled in cloud mode so one public user cannot exhaust
+  it for trusted users. Real provider rate limits and error backoff still apply.
+  Signup is limited to 100/day; Google verification alone is not bot detection.
+  Public pools bound spending but cannot guarantee availability during an attack.
 - Cloud metadata is capped at 1,000 card IDs (including deletion tombstones), 4 MB
   per card/history, 64 MB/account and 512 MB globally. Photos are capped at 8 MB
   each, 512 MB/account and 4 GB globally. Layouts and operation records also consume
@@ -139,9 +154,11 @@ secret values.
   it does not silently apply old conflicts or resurrect deleted cards. New accounts
   can restore the ordinary card/image backup through the existing restore UI.
 
-Optional initial budget environment variables are `POKESIFT_SCAN_MONTHLY_LIMIT`,
-`POKESIFT_LOOKUP_MONTHLY_LIMIT` and `POKESIFT_PUBLIC_DAILY_LIMIT`. Values saved by
-owner tools take precedence. Budget usage persists across restarts and instances.
+Optional initial policy variables are `POKESIFT_PUBLIC_DAILY_LIMIT`,
+`POKESIFT_PUBLIC_MONTHLY_LIMIT` and `POKESIFT_APPROVED_SCANS_PER_MINUTE`.
+Values saved by owner tools take precedence and usage survives restarts.
+The old `POKESIFT_SCAN_MONTHLY_LIMIT` and `POKESIFT_LOOKUP_MONTHLY_LIMIT`
+variables are deprecated and ignored by the new access policy.
 
 ## Recovery, maintenance and rollback
 

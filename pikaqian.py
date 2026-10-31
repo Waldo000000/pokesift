@@ -102,6 +102,7 @@ class PikaQian:
         self.cache = {}
         self.lock = threading.RLock()
         self.attempts = deque()
+        self.hourly_limit = 60
         self.pricing_disabled_until = 0
         self.failures = 0
         self.blocked_until = 0
@@ -124,7 +125,7 @@ class PikaQian:
                 raise ProviderError('tier_required')
             while self.attempts and now - self.attempts[0] >= 3600:
                 self.attempts.popleft()
-            if len(self.attempts) >= 60:
+            if self.hourly_limit is not None and len(self.attempts) >= self.hourly_limit:
                 raise ProviderError('rate_limited')
             self.attempts.append(now)
             try:

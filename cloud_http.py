@@ -27,7 +27,7 @@ class CloudHTTP:
         if public_origin and url.startswith('sqlite:'):raise ValueError('SQLite fixture storage cannot serve a public deployment.')
         if public_origin and os.environ.get('POKESIFT_MEDIA_DIR'):raise ValueError('Local media storage is only for development.')
         db=Database(url);db.migrate()
-        limits={k:int(os.environ[env]) for k,env in [('tcgapi_monthly','POKESIFT_SCAN_MONTHLY_LIMIT'),('pikaqian_monthly','POKESIFT_LOOKUP_MONTHLY_LIMIT'),('public_daily','POKESIFT_PUBLIC_DAILY_LIMIT')] if env in os.environ}
+        limits={k:int(os.environ[env]) for k,env in [('public_daily','POKESIFT_PUBLIC_DAILY_LIMIT'),('public_monthly','POKESIFT_PUBLIC_MONTHLY_LIMIT'),('approved_per_minute','POKESIFT_APPROVED_SCANS_PER_MINUTE')] if env in os.environ}
         store=CloudStore(db,limits=limits)
         media=MediaStore(os.environ.get('S3_ENDPOINT_URL',''),os.environ.get('S3_BUCKET',''),os.environ.get('S3_ACCESS_KEY_ID',''),os.environ.get('S3_SECRET_ACCESS_KEY',''),os.environ.get('S3_REGION','us-east-2'),local_dir=os.environ.get('POKESIFT_MEDIA_DIR'))
         return cls(store,media,NeonAuth(os.environ.get('NEON_AUTH_BASE_URL','')))
@@ -70,14 +70,14 @@ class CloudHTTP:
         return data
 
     @staticmethod
-    def json(h,data,status=200,cookie=None):h.send(status,json.dumps(data,allow_nan=False).encode(),cookie=cookie)
+    def json(h,data,status=200,cookie=None,extra_headers=None):h.send(status,json.dumps(data,allow_nan=False).encode(),cookie=cookie,extra_headers=extra_headers)
 
     def dispatch(self,h):
         target=urlsplit(h.path)
         matches=target.path.startswith('/api/cloud/') or target.path in {'/api/session','/api/logout','/api/account/sign-in','/auth/callback','/api/pair','/api/invites'}
         if not matches:return False
         try:self.handle(h,target)
-        except CloudError as e:self.json(h,{'error':{'message':e.message,**e.extra}},e.status)
+        except CloudError as e:self.json(h,{'error':{'message':e.message,**e.extra}},e.status,extra_headers={'Retry-After':str(e.extra['retryAfter'])} if 'retryAfter' in e.extra else None)
         except Exception:h.error(503,'Cloud service temporarily unavailable. Local data has been kept; try again.')
         return True
 
@@ -138,7 +138,7 @@ class CloudHTTP:
         if route=='/api/cloud/migration':return self.json(h,self.store.migration(owner,data.get('id'),data.get('manifest')))
         if route=='/api/cloud/redeem':return self.json(h,self.store.redeem(owner,data.get('code')))
         if route=='/api/cloud/invite':
-            result=self.store.invite(owner,data.get('maxUses',5),data.get('allowance',50));result['url']=origin+'/#join='+result['code'];return self.json(h,result)
+            result=self.store.invite(owner,data.get('email'));result['url']=origin+'/#join='+result['code'];return self.json(h,result)
         if route=='/api/cloud/admin':return self.json(h,self.store.admin(owner,data))
         if route=='/api/cloud/request-scans':return self.json(h,self.store.request_more(owner,data.get('note','')))
         if route=='/api/cloud/revoke-session':

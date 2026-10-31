@@ -83,7 +83,7 @@ class Database:
                 connection.close()
 
     def migrate(self):
-        schema=(Path(__file__).parent/'migrations/001_cloud.sql').read_text()
+        schema='\n'.join(p.read_text() for p in sorted((Path(__file__).parent/'migrations').glob('*.sql')))
         # Initial bootstrap precedes the mutex's existence.
         if self.sqlite:
             with sqlite3.connect(self.url[7:]) as c:
@@ -102,14 +102,15 @@ class CloudStore:
         self.db,self.clock=database,clock
         self.limits={'cards':1000,'account_media':512*1024*1024,'global_media':4*1024**3,
                      'account_metadata':64*1024*1024,'global_metadata':512*1024*1024,
-                     'public_daily':20,'tcgapi_monthly':0,'pikaqian_monthly':0,**(limits or {})}
+                     'public_daily':30,'public_monthly':300,'public_catalog_daily':100,
+                     'public_catalog_monthly':1000,'approved_per_minute':6,'provider_calls_enabled':1,**(limits or {})}
 
     def now(self): return int(self.clock())
 
     def _rate(self,q,name,limit,seconds):
         now=self.now();row=q('SELECT * FROM cloud_rate_limits WHERE name=?',(name,)).fetchone()
         if row and row['expires_at']>now and row['used']>=limit:
-            raise CloudError(429,'Too many requests. Please try again shortly.')
+            raise CloudError(429,'Too many requests. Please try again shortly.',retryAfter=max(1,row['expires_at']-now))
         used=row['used']+1 if row and row['expires_at']>now else 1
         end=row['expires_at'] if row and row['expires_at']>now else now+seconds
         q('INSERT INTO cloud_rate_limits(name,used,expires_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET used=excluded.used,expires_at=excluded.expires_at',(name,used,end))
@@ -135,8 +136,7 @@ class CloudStore:
         with self.db.transaction(True) as q:
             row=q('SELECT * FROM cloud_accounts WHERE subject=?',(subject,)).fetchone()
             if not row: raise CloudError(404,'Sign in once before assigning the owner role.')
-            greatest='MAX' if self.db.sqlite else 'GREATEST'
-            q(f"UPDATE cloud_accounts SET role='owner',tier='approved',allowance={greatest}(allowance,1000) WHERE id=?",(row['id'],))
+            q("UPDATE cloud_accounts SET role='owner',tier='approved' WHERE id=?",(row['id'],))
             return row['id']
 
     def session(self,token):
@@ -300,9 +300,9 @@ class CloudStore:
             self._record_operation(q,owner,op['operationId'],op,result)
             return result
 
-    def _reserve(self,q,name,amount,limit):
+    def _reserve(self,q,name,amount,limit,*,message=None,code='budget_exhausted'):
         row=q('SELECT used FROM cloud_usage WHERE name=?',(name,)).fetchone();used=row['used'] if row else 0
-        if used+amount>limit:raise CloudError(429,'The shared or account allowance is currently full. Your collection is still available.',code='budget_exhausted')
+        if used+amount>limit:raise CloudError(429,message or 'The shared or account allowance is currently full. Your collection is still available.',code=code)
         q('INSERT INTO cloud_usage(name,used) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET used=excluded.used',(name,max(0,used+amount)))
 
     def reserve_media(self,owner,sha,size,mime):
@@ -362,14 +362,16 @@ class CloudStore:
     def _audit(self,q,actor,action,target,details):
         q('INSERT INTO cloud_audit(id,actor_id,action,target_id,details,created_at) VALUES(?,?,?,?,?,?)',(str(uuid.uuid4()),actor,action,target,packed(details),self.now()))
 
-    def invite(self,owner,max_uses=5,allowance=50):
-        if type(max_uses) is not int or not 1<=max_uses<=20 or type(allowance) is not int or not 1<=allowance<=1000:raise CloudError(400,'Invalid invitation allowance.')
+    def invite(self,owner,email):
         token=secrets.token_urlsafe(24);iid=str(uuid.uuid4())
         with self.db.transaction(True) as q:
             self.require_admin(q,owner)
-            q('INSERT INTO cloud_invites(id,token_hash,created_by,expires_at,max_uses,allowance,created_at) VALUES(?,?,?,?,?,?,?)',(iid,digest(token),owner,self.now()+7*86400,max_uses,allowance,self.now()))
-            self._audit(q,owner,'invite.create',iid,{'maxUses':max_uses,'allowance':allowance})
-        return {'id':iid,'code':token,'expiresAt':self.now()+7*86400,'maxUses':max_uses,'allowance':allowance}
+            if not isinstance(email,str) or len(email)>320 or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email.strip()):raise CloudError(400,'Enter the Google email address for this invitation.')
+            email=email.strip().lower()
+            q('INSERT INTO cloud_invites(id,token_hash,created_by,expires_at,max_uses,allowance,created_at) VALUES(?,?,?,?,?,?,?)',(iid,digest(token),owner,self.now()+7*86400,1,0,self.now()))
+            q('INSERT INTO cloud_invite_recipients(invite_id,email) VALUES(?,?)',(iid,email))
+            self._audit(q,owner,'invite.create',iid,{'recipientEmail':email,'access':'ongoing'})
+        return {'id':iid,'code':token,'expiresAt':self.now()+7*86400,'maxUses':1,'recipientEmail':email,'access':'ongoing'}
 
     def redeem(self,owner,token):
         self.rate('redeem:'+owner,10,3600)
@@ -377,12 +379,16 @@ class CloudStore:
         with self.db.transaction(True) as q:
             invite=q('SELECT * FROM cloud_invites WHERE token_hash=?',(digest(token),)).fetchone()
             if not invite or invite['revoked'] or invite['expires_at']<=self.now():raise CloudError(400,'This invitation has expired or was revoked.')
+            recipient=q('SELECT email FROM cloud_invite_recipients WHERE invite_id=?',(invite['id'],)).fetchone()
+            if not recipient:raise CloudError(400,'Ask the owner for a new invitation addressed to your Google email.')
+            account=q('SELECT * FROM cloud_accounts WHERE id=? AND disabled=0',(owner,)).fetchone()
+            if not account or account['email'].lower()!=recipient['email']:raise CloudError(403,'Sign in with the Google account this invitation was created for.')
             if q('SELECT owner_id FROM cloud_redemptions WHERE invite_id=? AND owner_id=?',(invite['id'],owner)).fetchone():return {'redeemed':True}
             count=q('SELECT COUNT(*) AS n FROM cloud_redemptions WHERE invite_id=?',(invite['id'],)).fetchone()['n']
             if count>=invite['max_uses']:raise CloudError(409,'This invitation has no places left. Ask for a new one.')
-            account=q('SELECT * FROM cloud_accounts WHERE id=?',(owner,)).fetchone()
             q('INSERT INTO cloud_redemptions(invite_id,owner_id,created_at) VALUES(?,?,?)',(invite['id'],owner,self.now()))
-            q("UPDATE cloud_accounts SET tier=CASE WHEN tier='public' THEN 'invited' ELSE tier END,allowance=? WHERE id=?",(max(account['allowance'],invite['allowance']),owner))
+            q("UPDATE cloud_accounts SET tier=CASE WHEN tier='public' THEN 'invited' ELSE tier END WHERE id=?",(owner,))
+            q('DELETE FROM cloud_requests WHERE owner_id=?',(owner,))
             return {'redeemed':True}
 
     def _budget(self,q,name):
@@ -400,17 +406,30 @@ class CloudStore:
                 raise CloudError(409,'This request was already submitted. Its outcome is uncertain; no retry was made.',code='request_pending')
             a=q('SELECT * FROM cloud_accounts WHERE id=? AND disabled=0',(owner,)).fetchone()
             if not a:raise CloudError(401,'Sign in again.')
-            self._rate(q,'paid:'+provider+':'+owner,2 if provider=='tcgapi' else 30,1 if provider=='tcgapi' else 60)
+            if not self._budget(q,'provider_calls_enabled'):raise CloudError(503,'Scanning and catalog lookups are paused by the owner. Your collection is still available.',code='provider_paused')
+            recent=q('SELECT state,status,response FROM cloud_paid_requests WHERE owner_id=? AND provider=? AND fingerprint=? AND created_at>? ORDER BY created_at DESC LIMIT 1',(owner,provider,fingerprint,self.now()-300)).fetchone()
+            if recent:
+                if recent['state']!='complete':raise CloudError(409,'This photo or lookup was already submitted. Its outcome is not yet confirmed; no new provider call was made.',code='request_pending')
+                q("INSERT INTO cloud_paid_requests(owner_id,id,provider,fingerprint,state,response,status,created_at) VALUES(?,?,?,?,'complete',?,?,?)",(owner,request_id,provider,fingerprint,recent['response'],recent['status'],self.now()))
+                return recent['status'],recent['response'].encode()
+            public=a['role']!='owner' and a['tier'] not in {'approved','invited'}
+            try:
+                self._rate(q,'burst:'+provider+':'+owner,2 if provider=='tcgapi' else 30,1 if provider=='tcgapi' else 60)
+                if provider=='tcgapi' and not public and a['role']!='owner':self._rate(q,'approved-scans:'+owner,self._budget(q,'approved_per_minute'),60)
+            except CloudError as error:
+                if provider=='tcgapi':raise CloudError(429,'Scanning too quickly. Please wait briefly before the next card.',code='scan_throttled',retryAfter=error.extra['retryAfter']) from None
+                raise
             now=datetime.datetime.fromtimestamp(self.now(),datetime.timezone.utc);month=now.strftime('%Y-%m');day=now.strftime('%Y-%m-%d')
             if provider=='tcgapi':
-                if a['spent']>=a['allowance']:raise CloudError(429,'You have used your scan allowance. Your collection is still available; request more scans to continue.',code='scan_allowance')
-                if a['tier']=='public':self._reserve(q,'public:'+day,1,self._budget(q,'public_daily'))
+                if public:
+                    if a['spent']>=3:raise CloudError(429,'Your three trial scans are complete. Request ongoing access from the owner to keep scanning.',code='trial_exhausted')
+                    for period,name in [(day,'public_daily'),(month,'public_monthly')]:
+                        self._reserve(q,'public:'+period,1,self._budget(q,name),message='The shared public trial pool is busy. Request ongoing access from the owner, or try again later.',code='public_trial_busy')
                 q('UPDATE cloud_accounts SET spent=spent+1 WHERE id=?',(owner,))
-            else:
-                # Lookup allowances are separate, but account farms share a public pool.
-                self._reserve(q,'lookup:'+owner+':'+day,1,100)
-                if a['tier']=='public':self._reserve(q,'public-lookup:'+day,1,100)
-            self._reserve(q,provider+':'+month,1,self._budget(q,provider+'_monthly'))
+            elif public:
+                for name,limit in [('public-catalog:'+owner,15),('public-lookup:'+day,self._budget(q,'public_catalog_daily')),('public-lookup:'+month,self._budget(q,'public_catalog_monthly'))]:
+                    self._reserve(q,name,1,limit,message='Public trial catalog access is busy. Request ongoing access from the owner to continue.',code='public_trial_busy')
+            q('INSERT INTO cloud_usage(name,used) VALUES(?,1) ON CONFLICT(name) DO UPDATE SET used=cloud_usage.used+1',(provider+':'+month,))
             q("INSERT INTO cloud_paid_requests(owner_id,id,provider,fingerprint,state,created_at) VALUES(?,?,?,?,'pending',?)",(owner,request_id,provider,fingerprint,self.now()))
         return None
 
@@ -421,7 +440,8 @@ class CloudStore:
     def account_info(self,owner):
         with self.db.transaction() as q:
             a=q('SELECT * FROM cloud_accounts WHERE id=?',(owner,)).fetchone()
-            return {'id':a['id'],'name':a['name'],'email':a['email'],'role':a['role'],'tier':a['tier'],'scansRemaining':max(0,a['allowance']-a['spent']),'scanAllowance':a['allowance'],'scansUsed':a['spent']}
+            access='owner' if a['role']=='owner' else 'approved' if a['tier'] in {'approved','invited'} else 'trial'
+            return {'id':a['id'],'name':a['name'],'email':a['email'],'role':a['role'],'tier':a['tier'],'accessLevel':access,'scansRemaining':max(0,3-a['spent']) if access=='trial' else None,'scanAllowance':3 if access=='trial' else None,'scansUsed':a['spent']}
 
     def request_more(self,owner,note):
         if not isinstance(note,str) or len(note)>500:raise CloudError(400,'Keep your request under 500 characters.')
@@ -436,22 +456,26 @@ class CloudStore:
             if change:
                 action=change.get('action');target=change.get('id','')
                 if action=='budget':
-                    if target not in {'tcgapi_monthly','pikaqian_monthly','public_daily'} or type(change.get('amount')) is not int or not 0<=change['amount']<=100000:raise CloudError(400,'Invalid budget.')
+                    if target not in {'public_daily','public_monthly','public_catalog_daily','public_catalog_monthly','approved_per_minute','provider_calls_enabled'} or type(change.get('amount')) is not int or not 0<=change['amount']<=100000:raise CloudError(400,'Reload the app to manage access policy.')
+                    if target=='approved_per_minute' and not 1<=change['amount']<=60:raise CloudError(400,'Choose between 1 and 60 scans per minute.')
+                    if target=='provider_calls_enabled' and change['amount'] not in {0,1}:raise CloudError(400,'Invalid pause setting.')
                     q('INSERT INTO cloud_budgets(name,amount) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET amount=excluded.amount',(target,change['amount']))
-                elif action=='allowance':
-                    if type(change.get('amount')) is not int or not 0<=change['amount']<=100000:raise CloudError(400,'Invalid allowance.')
-                    q("UPDATE cloud_accounts SET allowance=?,tier='approved' WHERE id=?",(change['amount'],target))
+                elif action=='access':
+                    if type(change.get('approved')) is not bool:raise CloudError(400,'Choose trial or ongoing access.')
+                    account=q('SELECT role FROM cloud_accounts WHERE id=?',(target,)).fetchone()
+                    if not account or account['role']=='owner':raise CloudError(400,'Owner access is managed separately.')
+                    q('UPDATE cloud_accounts SET tier=? WHERE id=?',('approved' if change['approved'] else 'public',target))
                     q('DELETE FROM cloud_requests WHERE owner_id=?',(target,))
                 elif action=='disable':
                     if target==owner:raise CloudError(400,'You cannot disable your own owner account.')
                     q('UPDATE cloud_accounts SET disabled=? WHERE id=?',(1 if change.get('disabled',True) else 0,target))
                 elif action=='revoke_invite':q('UPDATE cloud_invites SET revoked=1 WHERE id=?',(target,))
                 else:raise CloudError(400,'Unknown admin action.')
-                self._audit(q,owner,action,str(target),{k:v for k,v in change.items() if k in {'amount','disabled'}})
+                self._audit(q,owner,action,str(target),{k:v for k,v in change.items() if k in {'amount','disabled','approved'}})
             return {'accounts':[dict(r) for r in q('SELECT id,name,email,role,tier,allowance,spent,disabled FROM cloud_accounts ORDER BY created_at DESC LIMIT 500').fetchall()],
-                    'invites':[dict(r) for r in q('SELECT i.id,i.expires_at,i.max_uses,i.allowance,i.revoked,COUNT(r.owner_id) AS uses FROM cloud_invites i LEFT JOIN cloud_redemptions r ON i.id=r.invite_id GROUP BY i.id,i.expires_at,i.max_uses,i.allowance,i.revoked,i.created_at ORDER BY i.created_at DESC LIMIT 100').fetchall()],
+                    'invites':[dict(r) for r in q('SELECT i.id,i.expires_at,i.max_uses,i.revoked,t.email AS recipient_email,(SELECT COUNT(*) FROM cloud_redemptions r WHERE r.invite_id=i.id) AS uses FROM cloud_invites i LEFT JOIN cloud_invite_recipients t ON t.invite_id=i.id ORDER BY i.created_at DESC LIMIT 100').fetchall()],
                     'requests':[dict(r) for r in q('SELECT * FROM cloud_requests ORDER BY created_at DESC LIMIT 100').fetchall()],
-                    'budgets':{name:self._budget(q,name) for name in ['tcgapi_monthly','pikaqian_monthly','public_daily']},
+                    'policy':{name:self._budget(q,name) for name in ['public_daily','public_monthly','public_catalog_daily','public_catalog_monthly','approved_per_minute','provider_calls_enabled']},
                     'usage':[dict(r) for r in q('SELECT * FROM cloud_usage ORDER BY name').fetchall()]}
 
     def cleanup(self,media,limit=20):
@@ -521,6 +545,7 @@ class CloudStore:
             size=sum(len(r['document'].encode()) for r in q('SELECT document FROM cloud_cards WHERE owner_id=?',(owner,)).fetchall())
             self._reserve(q,'metadata:global',-size,self.limits['global_metadata'])
             q('DELETE FROM cloud_redemptions WHERE owner_id=? OR invite_id IN (SELECT id FROM cloud_invites WHERE created_by=?)',(owner,owner))
+            q('DELETE FROM cloud_invite_recipients WHERE email=? OR invite_id IN (SELECT id FROM cloud_invites WHERE created_by=?)',(a['email'].lower(),owner))
             q('DELETE FROM cloud_invites WHERE created_by=?',(owner,))
             for table in ['cloud_cards','cloud_layouts','cloud_media','cloud_migrations','cloud_operations','cloud_sessions','cloud_paid_requests','cloud_requests']:
                 q(f'DELETE FROM {table} WHERE owner_id=?',(owner,))

@@ -365,7 +365,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not times:
                         del self.server.scan_times[device]
                 times = self.server.scan_times.setdefault(self.device_id, deque())
-                if len(times) >= 2:
+                if not self.server.cloud and len(times) >= 2:
                     return self.error(429, 'Scanning too quickly. Allow a second between batches. This photo was not sent to the provider.')
                 times.append(now)
                 while len(self.server.scan_times) > 1024:
@@ -389,7 +389,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.error(502, 'Provider redirect refused. No retry was made.')
             self.send(status, body)
         except CloudError as error:
-            self.send(error.status,json.dumps({'error':{'message':error.message,**error.extra}}).encode())
+            headers={'Retry-After':str(error.extra['retryAfter'])} if 'retryAfter' in error.extra else {}
+            if error.extra.get('code')=='scan_throttled':headers['X-PokeSift-Scan-Throttled']='1'
+            self.send(error.status,json.dumps({'error':{'message':error.message,**error.extra}}).encode(),extra_headers=headers)
         except Exception:
             self.error(502, 'Provider request failed or timed out. A scan may have been used. Check your provider dashboard before retrying. No retry was made.')
 
@@ -446,6 +448,7 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     if server.cloud:
         server.forward = server.cloud.wrap_scan(server.forward)
         server.pikaqian.transport = server.cloud.wrap_lookup(server.pikaqian.transport)
+        server.pikaqian.hourly_limit = None
     return server
 
 

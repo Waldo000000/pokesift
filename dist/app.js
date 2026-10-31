@@ -368,11 +368,11 @@ function showLatestFind(e) {
   banner.classList.remove('arrived'); void banner.offsetWidth; banner.classList.add('arrived');
   clearTimeout(latestTimer); latestTimer = setTimeout(() => { banner.hidden = true; },7000);
 }
-let lastScanStart=0,pumpTimer;
+let lastScanStart=0,scanThrottleUntil=0,pumpTimer;
 function pump() {
   clearTimeout(pumpTimer);
   while (active < 2 && jobs.length) {
-    const delay=550-(Date.now()-lastScanStart);if(delay>0){pumpTimer=setTimeout(pump,delay);return;}lastScanStart=Date.now();
+    const delay=Math.max(550-(Date.now()-lastScanStart),scanThrottleUntil-Date.now());if(delay>0){pumpTimer=setTimeout(pump,delay);return;}lastScanStart=Date.now();
     const job = jobs.shift(); active++;
     runJob(job).finally(() => { active--; render(); pump(); });
   }
@@ -395,14 +395,20 @@ async function cacheCanonicalImage(e) {
   } catch { /* Keep the captured photo; image failure never changes scan results. */ }
   finally { clearTimeout(timeout); }
 }
-async function runJob({id,blob}) {
+async function runJob({id,blob,requestId=crypto.randomUUID()}) {
   const e = entries.find(entry => entry.id === id); if (!e) return;
-  e.status = 'scanning';const requestId=crypto.randomUUID();e.scanRequestId=requestId;save(); render();
+  e.status = 'scanning';e.scanRequestId=requestId;save(); render();
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(),60000);
   try {
     const response = await fetch('/api/identify',{method:'POST',headers:{'Content-Type':blob.type,'X-Request-ID':requestId},body:blob,credentials:'same-origin',redirect:'error',referrerPolicy:'no-referrer',signal:controller.signal});
     let result;
     try { result = await response.json(); } catch { throw new Error('The server returned an unreadable response. A scan may have been used. No retry was made.'); }
+    // Only an explicit pre-provider throttle rejection is safe to queue again.
+    if(response.status===429&&response.headers.get('X-PokeSift-Scan-Throttled')==='1'&&result?.error?.code==='scan_throttled'&&Number.isInteger(result.error.retryAfter)&&result.error.retryAfter>0&&result.error.retryAfter<=60){
+      scanThrottleUntil=Math.max(scanThrottleUntil,Date.now()+result.error.retryAfter*1000);
+      e.status='queued';e.message=`Waiting ${result.error.retryAfter} seconds before the next scan. Your photo is saved.`;
+      jobs.unshift({id,blob,requestId});return;
+    }
     if (!response.ok) throw new Error(result?.error?.message || `The server returned HTTP ${response.status}. No retry was made.`);
     if (!['matched','ambiguous','retake','not_found','unsupported'].includes(result?.data?.status)) throw new Error('The provider returned an unexpected result. A scan may have been used. No retry was made.');
     e.providerObservations = [...(e.providerObservations || []),{provider:'tcgapi',operation:'identify',receivedAt:new Date().toISOString(),snapshotKind:'provider_response',parameters:{game:'pokemon',include:'prices'},response:structuredClone(result)}];

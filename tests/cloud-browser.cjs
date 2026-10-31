@@ -48,10 +48,24 @@ try{
  await a.p.evaluate(()=>{entries[0].replayMarker='once';save()});await a.p.waitForFunction(()=>document.querySelector('#sync-status').textContent.includes('fetch'),{},{timeout:10000}).catch(()=>{});
  assert(dropped);await a.c.unroute('**/api/cloud/card');await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
  const afterReplay=await a.p.evaluate(()=>PokeSiftCloud.api('card?id=legacy-one'));assert.equal(afterReplay.document.replayMarker,'once');assert.equal((await a.p.evaluate(()=>PokeSiftCloud.api('inventory'))).cards.length,1);
- // Invites are transferable grants, not access to the sender's collection.
- const invite=await a.p.evaluate(()=>PokeSiftCloud.api('invite',{}));assert.equal(invite.maxUses,5);assert(invite.expiresAt>Date.now()/1000+6*86400);
- await b.p.evaluate(code=>PokeSiftCloud.api('redeem',{code}),invite.code);await b.p.evaluate(code=>PokeSiftCloud.api('redeem',{code}),invite.code);
- const info=await b.p.evaluate(()=>fetch('/api/session').then(r=>r.json()));assert.equal(info.account.scanAllowance,50);assert.equal(info.account.role,'member');assert.equal((await b.p.evaluate(()=>PokeSiftCloud.api('inventory'))).cards.length,0);
+ // Requests are visible with the Google email, and approval grants ongoing access.
+ await b.p.locator('#account-button').click();await b.p.locator('#request-access-section summary').click();
+ await b.p.locator('#scan-request-note').fill('Please approve ongoing access');await b.p.locator('#request-scans').click();
+ await a.p.locator('#account-button').click();await a.p.locator('#owner-tools>summary').click();await a.p.locator('#load-admin').click();
+ const bobSection=a.p.locator('#admin-content section').filter({hasText:'bob@example.test'});
+ await bobSection.getByRole('button',{name:'Approve ongoing access',exact:true}).click();
+ await bobSection.getByRole('button',{name:'Remove ongoing access',exact:true}).waitFor();
+ await b.p.evaluate(()=>PokeSiftAccount.refresh());assert.match(await b.p.locator('#scan-remaining').textContent(),/Ongoing access/);
+ await bobSection.getByRole('button',{name:'Remove ongoing access',exact:true}).click();
+ await bobSection.getByRole('button',{name:'Approve ongoing access',exact:true}).waitFor();
+ // Email-bound, single-use codes grant access automatically, without sharing collections.
+ await a.p.locator('#invite-email').fill('bob@example.test');await a.p.locator('#create-friend-invite').click();
+ await a.p.waitForFunction(()=>document.querySelector('#created-invite').value.includes('#join='));
+ const inviteCode=new URLSearchParams(new URL(await a.p.locator('#created-invite').inputValue()).hash.slice(1)).get('join');
+ await b.p.locator('#join-code').fill(inviteCode);await b.p.locator('#redeem-code').click();
+ await b.p.waitForFunction(()=>document.querySelector('#scan-remaining').textContent.includes('Ongoing access'));
+ const info=await b.p.evaluate(()=>fetch('/api/session').then(r=>r.json()));assert.equal(info.account.scanAllowance,null);assert.equal(info.account.role,'member');assert.equal((await b.p.evaluate(()=>PokeSiftCloud.api('inventory'))).cards.length,0);
+ await a.p.locator('#close-account').click();await b.p.locator('#close-account').click();
  // Restore the complete cloud export into a different account without rescanning.
  b.p.once('dialog',dialog=>dialog.accept());await b.p.locator('#backup-file').setInputFiles({name:'collection.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(exported))});
  await b.p.locator('.card-tile').waitFor();await waitSynced(b.p);
@@ -70,6 +84,23 @@ try{
  await second.p.evaluate(()=>PokeSiftCloud.recover('legacy-one'));await waitSynced(second.p);assert.equal(await second.p.locator('.card-tile').count(),1);
  // Reload reads the durable account cache and never imports the legacy source twice.
  await a.p.reload();await a.p.locator('.card-tile').waitFor();await waitSynced(a.p);assert.equal(await a.p.locator('#cloud-migration').isVisible(),false);
+ // Only an explicit, pre-provider throttle is automatically queued again.
+ let scanAttempts=0;const requestIds=[];
+ await a.c.route('**/api/identify',r=>{scanAttempts++;requestIds.push(r.request().headers()['x-request-id']);return r.fulfill(scanAttempts===1?{status:429,headers:{'X-PokeSift-Scan-Throttled':'1'},json:{error:{code:'scan_throttled',retryAfter:1,message:'Queued'}}}:{json:{data:{status:'matched',read:{name:'Pikachu'},candidates:[]}}});});
+ await a.p.evaluate(image=>{const id='paced-photo';entries.push({id,status:'queued',createdAt:new Date().toISOString(),thumbnail:image});jobs.push({id,blob:new Blob([new Uint8Array([137,80,78,71,13,10,26,10])],{type:'image/png'})});pump();},image);
+ await a.p.waitForFunction(()=>entries.find(e=>e.id==='paced-photo')?.status==='matched');
+ assert.equal(scanAttempts,2);assert.equal(requestIds[0],requestIds[1]);
+ await a.c.unroute('**/api/identify');
+ let uncertainAttempts=0;await a.c.route('**/api/identify',r=>{uncertainAttempts++;return r.abort();});
+ await a.p.evaluate(image=>{const id='uncertain-photo';entries.push({id,status:'queued',createdAt:new Date().toISOString(),thumbnail:image});jobs.push({id,blob:new Blob([new Uint8Array([137,80,78,71,13,10,26,10])],{type:'image/png'})});pump();},image);
+ await a.p.waitForFunction(()=>entries.find(e=>e.id==='uncertain-photo')?.status==='interrupted');await a.p.waitForTimeout(1200);assert.equal(uncertainAttempts,1);
+ await a.c.unroute('**/api/identify');await a.p.evaluate(()=>{entries=entries.filter(e=>!['paced-photo','uncertain-photo'].includes(e.id));save();render();});
+ // A provider error with a similar JSON code is not a pre-provider rejection.
+ let providerErrors=0;await a.c.route('**/api/identify',r=>{providerErrors++;return r.fulfill({status:429,json:{error:{code:'scan_throttled',retryAfter:1,message:'Provider error'}}});});
+ await a.p.evaluate(image=>{const id='provider-error-photo';entries.push({id,status:'queued',createdAt:new Date().toISOString(),thumbnail:image});jobs.push({id,blob:new Blob([new Uint8Array([137,80,78,71,13,10,26,10])],{type:'image/png'})});pump();},image);
+ await a.p.waitForFunction(()=>entries.find(e=>e.id==='provider-error-photo')?.status==='error');await a.p.waitForTimeout(1200);assert.equal(providerErrors,1);
+ await a.c.unroute('**/api/identify');await a.p.evaluate(()=>{entries=entries.filter(e=>e.id!=='provider-error-photo');save();render();});
+ await a.p.evaluate(()=>PokeSiftCloud.sync());await waitSynced(a.p);
  // Check account UI on phone; cloud sign-out removes only this account cache.
  await a.p.locator('#account-button').click();await a.p.locator('summary').filter({hasText:'Sign out of this device'}).click();await a.p.locator('#account-sign-out').click();await a.p.locator('#google-sign-in').waitFor();assert.equal(await a.p.locator('#collection-view').isVisible(),false);assert.equal(await a.p.evaluate(()=>JSON.parse(localStorage.getItem('pokesift.collection.v1')).entries.length),1);
  assert.equal(paid,0);assert.deepEqual(errors,[]);

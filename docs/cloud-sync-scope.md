@@ -20,7 +20,7 @@ Model accounts, collections, memberships, devices/sessions, cards, media, provid
 
 - Standard account entry via **Continue with Google**, backed by Neon managed Better Auth. Google handles identity and account recovery; PokéSift does not send verification/reset emails or manage user passwords. Account creation remains open to public users, with paid scan entitlement limited separately. Validate the identity provider's verified-email claim where used for entitlement; never trust a browser-supplied email or account ID. Google supplies an email address as part of identity, but the app does not send mail. Support for users without a Google account is deferred.
 - Replace QR device pairing with signing into the same account on each device. Support session revocation. Existing app-wide sessions are not proof of ownership and cannot silently become owner accounts.
-- Owners/admins can create a shareable seven-day invitation link and code without knowing recipients' email addresses. The invite grants a larger scan allowance to the recipient's own account; it does not sign them in as the sender or share the sender's collection. Account creation, invitations and scan access are separate concepts. See allowances below.
+- Owners can create a single-use seven-day invitation link for a specific Google email. The invite grants ongoing scan access to the recipient's own account; it does not sign them in as the sender or share the sender's collection. Account creation, invitations and scan access are separate concepts. See allowances below.
 - Add a small sync indicator: **Saved on this device**, **Syncing**, **Synced**, or an actionable failure. Never claim a photo is backed up before its upload is verified.
 - Save edits locally first and sync in the background. Support queued changes through temporary connection loss; remote updates arrive without interrupting capture or gestures. Scanning still requires connectivity. Offline app installation/service-worker support is outside this phase.
 - Preserve complete export/restore. Cloud exports must include archived images even when they are no longer cached on the exporting device. Signed download URLs are not portable backup content.
@@ -49,26 +49,35 @@ Persist scan request identifiers/outcomes so reconnecting does not automatically
 
 ## Signup, invitations and scan spending
 
-The user wants public signup with a small trial, easy access for friends without knowing their emails in advance, and protection against mass-account creation consuming provider credits. Account ownership must remain separate from paid scan entitlement.
+Public Google accounts get three lifetime scan calls. Shared public pools cap all
+trial accounts together at 30 scan calls/day and 300/month, plus 100 catalog
+calls/day and 1,000/month (15 catalog calls per trial account). Account farms
+cannot multiply these pools. Exhaustion can temporarily block a legitimate
+public trial, so requesting approval stays available without provider use.
 
-Implemented starting allowances (owner-adjustable; global paid budgets still default to zero):
+Approved and invited accounts have ongoing access with six new scan calls/minute
+and no lifetime quota. The owner has no lifetime quota or minute quota; the
+two-calls/second burst guard still applies. Storage, account isolation, disabled
+accounts, provider limits and error backoff apply to everyone.
 
-| Account/access | Initial allowance |
-| --- | --- |
-| Unauthenticated/unverified identity | No paid scans |
-| Public signup with verified Google identity | 3 trial scans total, not a renewing daily allowance |
-| Invited signup or existing account redeeming an invite | Top up to 50 trial scans total; do not stack invite grants |
-| Owner/admin-approved account | Explicitly adjustable allowance, still bounded by the global provider budget |
+Owner tools show requests beside verified account emails and grant or remove
+ongoing access. Invitations are bound to a specified Google email, single-use
+and valid for seven days. Redemption upgrades the recipient's own account; it
+never shares a collection or grants owner privileges. Expiry does not revoke
+access already granted. Legacy unbound codes cannot grant the stronger access.
 
-Invites expire after seven days, but expiry does not delete an account or revoke an already granted allowance. Use high-entropy links/codes, store token hashes, limit redemption attempts, and allow admin revocation. Default to up to five distinct account redemptions per invite so a parent can forward one link to several people; make that count configurable. Capture the code through the sign-in redirect without exposing it to analytics or referrer URLs. Redemptions must be atomic and idempotent. A leaked link can consume only its remaining redemptions and the shared spending budget. Recipients cannot mint further enhanced-access invitations unless explicitly granted that permission.
+An explicit owner pause stops new provider calls for every tier. Old zero-valued
+global monthly budgets are replaced by this control and public-only pools.
+Provider use is enabled by default under this policy, using the existing keys
+and credits without changing purchased plans. Operators can set
+`provider_calls_enabled=0` before isolated verification.
 
-No email-address list is needed: send Phyllis a link and she can pass it to Ryan and Max. Each person who signs up gets a separate private collection. An account can redeem a code later without starting over. Household sharing/child profiles remain a separate potential scope; they are not implied by an invite.
-
-Use durable, atomic reservations before submitting paid provider calls. Enforce account balances, a shared public-trial pool, and an overall provider budget across all accounts/server instances. Start with a proposed public pool of 20 scans/day; set the overall monthly cap against the owner's actual purchased allowance and desired headroom before enabling public scans. Exhausting the public pool pauses public trial scans while preserving browsing and separately budgeted invited access. The overall cap applies to everyone. Include paid fallback/catalog operations in provider-specific budgets; scan limits alone do not bound all spending. Unknown provider outcomes retain their reservation pending reconciliation; do not automatically refund/retry and risk a second charge. Treat application accounting as a guardrail alongside provider-side quotas, not an exact billing guarantee.
-
-Add signup/login/redemption rate limits and a managed bot challenge on public registration or suspicious activity. Email verification alone is insufficient against account farms. IP/network signals are secondary abuse controls, not one-account-per-household rules; shared family Wi-Fi must work. Invitations reduce friction, not remove spending controls. Use upload/storage caps too so public accounts cannot consume unlimited non-scan resources.
-
-Show remaining scans and a clear **Request more scans** path. Initially this can create an admin review item rather than automatically sending emails. Provide a small owner-only admin screen to create/revoke invites, adjust grants, view reserved/consumed balances, pause paid processing and inspect the global budget. Limit exhaustion must leave the collection usable and must not trigger automatic paid retries.
+Paid requests are reserved atomically across instances. Duplicate request IDs
+replay completed results; identical account-scoped photos are reused for five
+minutes. Uncertain provider outcomes never cause an automatic retry. Only a
+known pre-provider throttle rejection may rejoin the queue after Retry-After.
+Google verification is not bot detection; public pools bound cost rather than
+guaranteeing access during an attack. No shared-household IP quota is imposed.
 
 ## Delivery sequence
 
