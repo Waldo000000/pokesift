@@ -1,5 +1,7 @@
 """Account HTTP routes. Disabled unless explicitly configured at deployment."""
 import contextvars
+import base64
+import io
 import json
 import os
 import re
@@ -140,7 +142,13 @@ class CloudHTTP:
         if route=='/api/cloud/migration':return self.json(h,self.store.migration(owner,data.get('id'),data.get('manifest')))
         if route=='/api/cloud/redeem':return self.json(h,self.store.redeem(owner,data.get('code')))
         if route=='/api/cloud/invite':
-            result=self.store.invite(owner,data.get('email'));result['url']=origin+'/#join='+result['code'];return self.json(h,result)
+            import qrcode
+            import qrcode.image.svg
+            result=self.store.invite(owner,data.get('email'));result['url']=origin+'/#join='+result['code']
+            image=qrcode.make(result['url'],image_factory=qrcode.image.svg.SvgPathImage,box_size=6,border=4)
+            output=io.BytesIO();image.save(output)
+            result['qr']='data:image/svg+xml;base64,'+base64.b64encode(output.getvalue()).decode()
+            return self.json(h,result)
         if route=='/api/cloud/admin':return self.json(h,self.store.admin(owner,data))
         if route=='/api/cloud/request-scans':return self.json(h,self.store.request_more(owner,data.get('note','')))
         if route=='/api/cloud/revoke-session':

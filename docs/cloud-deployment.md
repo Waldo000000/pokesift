@@ -99,19 +99,18 @@ secret values.
    across all public Google accounts, rather than multiplying with signup count.
    A busy public pool can delay legitimate trials; requests for approval remain
    available, and owners/approved accounts do not consume that pool.
-9. Approved accounts have ongoing access paced at six new scan calls/minute.
+9. Approved accounts have ongoing access paced by the approved-account per-minute policy.
    Owners have no lifetime quota and only the two-calls/second burst guard.
    An owner can approve requests by the displayed email or create an invitation
    for a particular Google email. Codes have one use and expire in seven days;
-   redemption grants ongoing access, never another person's collection. Legacy
-   unbound codes must be replaced with addressed invitations.
+   redemption grants ongoing access, never another person's collection. **Profile → Invite a friend** also lets owners and approved/invited members show a single-use QR or share its link. Members can create five invitations per 24 hours; recipients inherit ongoing access and the same ability to invite friends. New QR codes expire after seven days and are permanently retired on first use. Removing the creator's ongoing access or disabling their account blocks their unclaimed invitations. Owner tools show creator and recipient emails and can revoke unused invitations. Historical unbound codes remain invalid and must be replaced with a new invitation.
 
    Operator examples (credentials stay in the configured environment):
 
    ```sh
    python scripts/cloud_admin.py budget --name provider_calls_enabled --amount 0
    python scripts/cloud_admin.py budget --name public_daily --amount 30
-   python scripts/cloud_admin.py budget --name approved_per_minute --amount 6
+   python scripts/cloud_admin.py budget --name approved_per_minute --amount 30
    # Enable connected provider use deliberately:
    python scripts/cloud_admin.py budget --name provider_calls_enabled --amount 1
    ```

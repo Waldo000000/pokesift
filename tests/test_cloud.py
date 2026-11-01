@@ -112,6 +112,62 @@ class CloudTests(unittest.TestCase):
         self.store.admin(self.a,{'action':'access','id':self.b,'approved':False})
         self.assertEqual(self.store.account_info(self.b)['accessLevel'],'trial')
         self.assert_error(400,lambda:self.store.admin(self.a,{'action':'access','id':self.a,'approved':False}))
+    def test_friend_qr_inherits_ongoing_access_and_can_be_passed_on(self):
+        self.assert_error(403,lambda:self.store.invite(self.b))
+        self.owner();self.store.admin(self.a,{'action':'access','id':self.b,'approved':True})
+        invite=self.store.invite(self.b)
+        self.assertIsNone(invite['recipientEmail']);self.assertEqual(invite['maxUses'],1)
+        self.assertEqual(self.store.redeem(self.b,invite['code']),{'redeemed':False,'ownInvitation':True})
+        c=self.store.account(str(uuid.uuid4()),'c@example.test','C',True)['id']
+        self.store.put_card(self.b,self.op(self.doc()))
+        self.store.redeem(c,invite['code']);self.store.redeem(c,invite['code'])
+        info=self.store.account_info(c);self.assertEqual(info['accessLevel'],'approved');self.assertEqual(info['role'],'member');self.assertIsNone(info['scanAllowance'])
+        self.assertEqual(self.store.inventory(c)['cards'],[])
+        self.assert_error(403,lambda:self.store.admin(c))
+        self.assertIsNotNone(self.store.invite(c)['code'])
+        history=next(i for i in self.store.admin(self.a)['invites'] if i['id']==invite['id'])
+        self.assertEqual(history['creator_email'],'b@example.test');self.assertEqual(history['redeemed_email'],'c@example.test')
+        self.store.admin(self.a,{'action':'access','id':c,'approved':False})
+        self.store.redeem(c,invite['code'])
+        self.assertEqual(self.store.account_info(c)['accessLevel'],'trial','Replaying a used QR must not undo an owner downgrade')
+    def test_friend_qr_can_only_be_claimed_once_even_concurrently(self):
+        self.owner();invite=self.store.invite(self.a)
+        ids=[self.store.account(str(uuid.uuid4()),f'friend-{n}@example.test','Friend',True)['id'] for n in range(4)]
+        def redeem(uid):
+            try:self.store.redeem(uid,invite['code']);return True
+            except CloudError:return False
+        with concurrent.futures.ThreadPoolExecutor(4) as pool:results=list(pool.map(redeem,ids))
+        self.assertEqual(sum(results),1)
+        self.assertEqual(sum(self.store.account_info(uid)['accessLevel']=='approved' for uid in ids),1)
+    def test_friend_invite_limits_persist_and_removed_access_stops_open_codes(self):
+        self.owner();self.store.admin(self.a,{'action':'access','id':self.b,'approved':True})
+        invitations=[self.store.invite(self.b) for _ in range(5)]
+        restarted=CloudStore(self.db,clock=lambda:self.now)
+        self.assert_error(429,lambda:restarted.invite(self.b))
+        c=self.store.account(str(uuid.uuid4()),'c@example.test','C',True)['id']
+        self.store.admin(self.a,{'action':'access','id':self.b,'approved':False})
+        self.assert_error(403,lambda:self.store.invite(self.b))
+        self.assert_error(400,lambda:self.store.redeem(c,invitations[0]['code']))
+        self.store.admin(self.a,{'action':'access','id':self.b,'approved':True});self.now+=86401
+        self.assertIsNotNone(restarted.invite(self.b)['code'])
+        for _ in range(6):self.store.invite(self.a)
+        self.store.admin(self.a,{'action':'disable','id':self.b,'disabled':True})
+        self.assert_error(403,lambda:self.store.invite(self.b))
+        self.assert_error(400,lambda:self.store.redeem(c,invitations[1]['code']))
+    def test_used_friend_code_stays_retired_after_account_erasure(self):
+        self.owner();invite=self.store.invite(self.a);self.store.redeem(self.b,invite['code'])
+        self.store.erase_account(self.b,self.media,execute=True)
+        with self.db.transaction() as q:self.assertEqual(q('SELECT COUNT(*) AS n FROM cloud_redemptions WHERE owner_id=?',(self.b,)).fetchone()['n'],0)
+        c=self.store.account(str(uuid.uuid4()),'c@example.test','C',True)['id']
+        self.assert_error(400,lambda:self.store.redeem(c,invite['code']))
+    def test_legacy_unbound_invites_stay_invalid_and_new_qrs_expire_or_revoke(self):
+        self.owner();legacy=self.store.invite(self.a)
+        with self.db.transaction(True) as q:q('DELETE FROM cloud_invite_recipients WHERE invite_id=?',(legacy['id'],))
+        self.assert_error(400,lambda:self.store.redeem(self.b,legacy['code']))
+        revoked=self.store.invite(self.a);self.store.admin(self.a,{'action':'revoke_invite','id':revoked['id']})
+        self.assert_error(400,lambda:self.store.redeem(self.b,revoked['code']))
+        expired=self.store.invite(self.a);self.now+=7*86400
+        self.assert_error(400,lambda:self.store.redeem(self.b,expired['code']))
     def test_paid_request_replay_never_spends_twice_or_refunds_uncertainty(self):
         self.assertIsNone(self.store.reserve_paid(self.a,'req','tcgapi','fingerprint'))
         self.assert_error(409,lambda:self.store.reserve_paid(self.a,'req','tcgapi','fingerprint'))

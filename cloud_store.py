@@ -362,14 +362,21 @@ class CloudStore:
     def _audit(self,q,actor,action,target,details):
         q('INSERT INTO cloud_audit(id,actor_id,action,target_id,details,created_at) VALUES(?,?,?,?,?,?)',(str(uuid.uuid4()),actor,action,target,packed(details),self.now()))
 
-    def invite(self,owner,email):
+    def invite(self,owner,email=None):
         token=secrets.token_urlsafe(24);iid=str(uuid.uuid4())
         with self.db.transaction(True) as q:
-            self.require_admin(q,owner)
-            if not isinstance(email,str) or len(email)>320 or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email.strip()):raise CloudError(400,'Enter the Google email address for this invitation.')
-            email=email.strip().lower()
+            actor=q('SELECT role,tier FROM cloud_accounts WHERE id=? AND disabled=0',(owner,)).fetchone()
+            if not actor or actor['role']!='owner' and actor['tier'] not in {'approved','invited'}:raise CloudError(403,'Ongoing access is required to invite friends.')
+            if email is not None:
+                if not isinstance(email,str) or len(email)>320 or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email.strip()):raise CloudError(400,'Enter the Google email address for this invitation.')
+                email=email.strip().lower()
+            if actor['role']!='owner':
+                try:self._rate(q,'friend-invites:'+owner,5,86400)
+                except CloudError as e:raise CloudError(429,'You can create five friend invitations per day. Please try again after the limit resets.',**e.extra) from None
             q('INSERT INTO cloud_invites(id,token_hash,created_by,expires_at,max_uses,allowance,created_at) VALUES(?,?,?,?,?,?,?)',(iid,digest(token),owner,self.now()+7*86400,1,0,self.now()))
-            q('INSERT INTO cloud_invite_recipients(invite_id,email) VALUES(?,?)',(iid,email))
+            # An explicit empty recipient marks a new single-use friend QR.
+            # Legacy bearer codes without this row remain invalid.
+            q('INSERT INTO cloud_invite_recipients(invite_id,email) VALUES(?,?)',(iid,email or ''))
             self._audit(q,owner,'invite.create',iid,{'recipientEmail':email,'access':'ongoing'})
         return {'id':iid,'code':token,'expiresAt':self.now()+7*86400,'maxUses':1,'recipientEmail':email,'access':'ongoing'}
 
@@ -378,17 +385,26 @@ class CloudStore:
         if not isinstance(token,str) or not 20<=len(token)<=100:raise CloudError(400,'Invalid invitation code.')
         with self.db.transaction(True) as q:
             invite=q('SELECT * FROM cloud_invites WHERE token_hash=?',(digest(token),)).fetchone()
-            if not invite or invite['revoked'] or invite['expires_at']<=self.now():raise CloudError(400,'This invitation has expired or was revoked.')
+            if not invite or invite['expires_at']<=self.now():raise CloudError(400,'This invitation has expired or was revoked.')
             recipient=q('SELECT email FROM cloud_invite_recipients WHERE invite_id=?',(invite['id'],)).fetchone()
             if not recipient:raise CloudError(400,'Ask the owner for a new invitation addressed to your Google email.')
             account=q('SELECT * FROM cloud_accounts WHERE id=? AND disabled=0',(owner,)).fetchone()
-            if not account or account['email'].lower()!=recipient['email']:raise CloudError(403,'Sign in with the Google account this invitation was created for.')
+            if not account:raise CloudError(403,'Sign in to redeem this invitation.')
+            if recipient['email'] and account['email'].lower()!=recipient['email']:raise CloudError(403,'Sign in with the Google account this invitation was created for.')
             if q('SELECT owner_id FROM cloud_redemptions WHERE invite_id=? AND owner_id=?',(invite['id'],owner)).fetchone():return {'redeemed':True}
+            if invite['revoked']:raise CloudError(400,'This invitation has expired, been used, or was revoked. Ask for a new one.')
+            creator=q('SELECT role,tier FROM cloud_accounts WHERE id=? AND disabled=0',(invite['created_by'],)).fetchone()
+            if not creator or creator['role']!='owner' and creator['tier'] not in {'approved','invited'}:raise CloudError(400,'This invitation is no longer active. Ask for a new invitation.')
+            if not recipient['email'] and invite['created_by']==owner:return {'redeemed':False,'ownInvitation':True}
             count=q('SELECT COUNT(*) AS n FROM cloud_redemptions WHERE invite_id=?',(invite['id'],)).fetchone()['n']
             if count>=invite['max_uses']:raise CloudError(409,'This invitation has no places left. Ask for a new one.')
             q('INSERT INTO cloud_redemptions(invite_id,owner_id,created_at) VALUES(?,?,?)',(invite['id'],owner,self.now()))
+            # Retire bearer QRs permanently, including if the recipient later
+            # erases their account and its redemption records are removed.
+            if not recipient['email']:q('UPDATE cloud_invites SET revoked=1 WHERE id=?',(invite['id'],))
             q("UPDATE cloud_accounts SET tier=CASE WHEN tier='public' THEN 'invited' ELSE tier END WHERE id=?",(owner,))
             q('DELETE FROM cloud_requests WHERE owner_id=?',(owner,))
+            self._audit(q,owner,'invite.redeem',invite['id'],{'invitedBy':invite['created_by'],'access':'ongoing'})
             return {'redeemed':True}
 
     def _budget(self,q,name):
@@ -486,7 +502,7 @@ class CloudStore:
                 else:raise CloudError(400,'Unknown admin action.')
                 self._audit(q,owner,action,str(target),{k:v for k,v in change.items() if k in {'amount','disabled','approved'}})
             return {'accounts':[dict(r) for r in q('SELECT id,name,email,role,tier,allowance,spent,disabled FROM cloud_accounts ORDER BY created_at DESC LIMIT 500').fetchall()],
-                    'invites':[dict(r) for r in q('SELECT i.id,i.expires_at,i.max_uses,i.revoked,t.email AS recipient_email,(SELECT COUNT(*) FROM cloud_redemptions r WHERE r.invite_id=i.id) AS uses FROM cloud_invites i LEFT JOIN cloud_invite_recipients t ON t.invite_id=i.id ORDER BY i.created_at DESC LIMIT 100').fetchall()],
+                    'invites':[dict(r) for r in q('SELECT i.id,i.expires_at,i.max_uses,i.revoked,t.email AS recipient_email,c.email AS creator_email,(SELECT a.email FROM cloud_redemptions r JOIN cloud_accounts a ON a.id=r.owner_id WHERE r.invite_id=i.id LIMIT 1) AS redeemed_email,(SELECT COUNT(*) FROM cloud_redemptions r WHERE r.invite_id=i.id) AS uses FROM cloud_invites i LEFT JOIN cloud_invite_recipients t ON t.invite_id=i.id JOIN cloud_accounts c ON c.id=i.created_by ORDER BY i.created_at DESC LIMIT 100').fetchall()],
                     'requests':[dict(r) for r in q('SELECT * FROM cloud_requests ORDER BY created_at DESC LIMIT 100').fetchall()],
                     'policy':{name:self._budget(q,name) for name in ['public_daily','public_monthly','public_catalog_daily','public_catalog_monthly','approved_per_minute','provider_calls_enabled']},
                     'usage':[dict(r) for r in q('SELECT * FROM cloud_usage ORDER BY name').fetchall()]}

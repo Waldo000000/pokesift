@@ -37,7 +37,11 @@ db=Database('sqlite:'+str(root/'cloud.sqlite'));db.migrate()
 store=CloudStore(db)
 a=store.account('fixture-a','alice@example.test','Alice',True);b=store.account('fixture-b','bob@example.test','Bob',True)
 store.promote_owner('fixture-a')
-(root/'sessions.json').write_text(json.dumps({'alice':store.create_session(a['id']),'bob':store.create_session(b['id']),'aliceId':a['id'],'bobId':b['id']}))
+sessions={'alice':store.create_session(a['id']),'bob':store.create_session(b['id']),'aliceId':a['id'],'bobId':b['id']}
+if len(sys.argv)>3 and sys.argv[3]=='friend-invites':
+ for name in ['carol','dan']:
+  friend=store.account('fixture-'+name,name+'@example.test',name.title(),True);sessions[name]=store.create_session(friend['id']);sessions[name+'Id']=friend['id']
+(root/'sessions.json').write_text(json.dumps(sessions))
 cloud=CloudHTTP(store,MediaStore('','','','',local_dir=str(root/'media')),NeonAuth('https://test.neonauth.neon.tech/neondb/auth',request=lambda *_:(_ for _ in ()).throw(RuntimeError('No live authentication in fixtures'))))
 calls=0
 def forward(*_):

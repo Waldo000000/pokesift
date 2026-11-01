@@ -8,16 +8,13 @@ A camera-first Pokémon collection app: scan cards in succession, watch their va
 
 Google accounts, private Neon photo storage, cross-device sync, seven-day friend
 invitations and durable scan budgets are implemented behind
-`POKESIFT_CLOUD_ENABLED=1`. The flag defaults to **off**: current access and storage
-continue to use the QR/browser-local mode described below. Live Neon/Google/storage
-verification is still required before activation. See the [exact deployment,
+`POKESIFT_CLOUD_ENABLED=1`. The flag defaults to **off** for new environments; local mode uses device pairing and browser storage. Configure and verify Google sign-in and private storage before enabling it. See the [exact deployment,
 migration, limits and rollback guide](docs/cloud-deployment.md).
 
-In cloud mode, each person gets a private collection; an email-bound invitation grants ongoing scan access
-without sharing anyone else's cards. The migration keeps original device data,
+In cloud mode, each person gets a private collection. **Profile → Invite a friend** lets owners and people with ongoing access show a QR or share/copy a link. One friend signs in with Google and receives ongoing scanning, without sharing anyone else's cards. Each QR has one use and lasts seven days; approved members can create five invitations per 24 hours. Invited friends can invite others under the same rules. Owner tools also retain invitations restricted to a particular Google email. The migration keeps original device data,
 uploads saved photos and retakes without rescanning, and supports second-device
 backups, offline edits, conflict review and 30-day card recovery. Public accounts get three trial scans with shared daily/monthly safeguards. Approved
-accounts have ongoing access at six scan calls/minute; owners have no lifetime
+accounts have ongoing access at the configured per-minute pace; owners have no lifetime
 quota. Owner tools approve requests by email, issue single-use invitations,
 adjust public pools and pacing, and explicitly pause provider calls. Existing
 provider credits are used when scanning is enabled; provider-side limits still apply.
@@ -28,7 +25,7 @@ Cards marked **Check the match** now show saved catalog candidates with image pr
 
 ## Using the app
 
-1. Sign in with Google for your synced collection. In local mode, scan a pairing QR to remember your device for 30 days; **Collection tools → Add another device** creates a ten-minute invite.
+1. Sign in with Google for your synced collection. Owners and approved members can use **Profile → Invite a friend** to show a QR or share a link that grants one friend ongoing access; they do not need to type the app address. In local mode, scan a pairing QR to remember your device for 30 days; **Collection tools → Add another device** creates a ten-minute invite.
 2. Open **Add cards** and take photos repeatedly, or select several existing photos. Up to two scans run concurrently; results and values appear in the camera tray without interrupting capture.
 3. Close the camera and choose **All cards**, **Binder**, **Fan** or **Pokémon Zoo** to browse your saved collection. Closing the camera stops video capture but lets queued scans finish; keep the page open until they complete.
 4. Review uncertain Chinese printing matches and confirm the correct card. Unsupported or unpriced cards stay in the collection with **Value unknown** and the identification details available so far.

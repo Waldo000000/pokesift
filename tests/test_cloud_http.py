@@ -76,6 +76,22 @@ class CloudHTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/api/cloud/media?hash='+sha,cookie=self.other)[0],404)
         self.assertEqual(self.request('/api/cloud/media',PNG+b'x',**headers)[0],400)
 
+    def test_ongoing_friend_invite_returns_private_qr_for_the_exact_origin(self):
+        import base64
+        import xml.etree.ElementTree as ET
+        self.store.promote_owner('alice')
+        self.store.admin(self.a,{'action':'access','id':self.b,'approved':True})
+        self.assertEqual(self.request('/api/cloud/invite',{},cookie='')[0],401)
+        self.assertEqual(self.request('/api/cloud/invite',{},cookie=self.other,origin='https://evil.example')[0],403)
+        status,body,headers=self.request('/api/cloud/invite',{},cookie=self.other)
+        self.assertEqual(status,200);invite=json.loads(body)
+        self.assertEqual(invite['url'],ORIGIN+'/#join='+invite['code'])
+        self.assertEqual(dict(headers)['Cache-Control'],'no-store')
+        self.assertTrue(invite['qr'].startswith('data:image/svg+xml;base64,'))
+        svg=ET.fromstring(base64.b64decode(invite['qr'].split(',')[1]));self.assertTrue(svg.tag.endswith('svg'));self.assertTrue(list(svg))
+        self.assertNotIn(invite['code'],json.dumps(self.store.admin(self.a)))
+        self.assertEqual(self.calls,[])
+
     def test_paid_http_retry_replays_without_consuming_another_scan(self):
         headers={'Content-Type':'image/png','X-Request-ID':'scan-1'}
         self.assertEqual(self.request('/api/identify',PNG,**{'Content-Type':'image/png'})[0],400)
