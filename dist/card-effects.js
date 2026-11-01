@@ -27,6 +27,14 @@
     const set=norm(data.set),layout=supertype==='energy'?'energy':supertype==='trainer'?'trainer':/^(base set(?: 2)?|base[12]|jungle|fossil|team rocket|gym heroes|gym challenge|neo (?:genesis|discovery|revelation|destiny)|legendary collection)$/.test(set)?'classic':'modern';
     return {supertype,layout,swordShield:swordShieldSets.has(setKey(set))};
   }
+  function fullArtClassification(data){
+    const label=/\bfull ?art\b|\b(?:special )?illustration rare\b|\brare (?:special )?illustration\b|\b(?:special )?art rare\b|\bhyper rare\b|\brare holo (?:vmax|vstar)\b/;
+    const explicit=[data.layout,data.rarity,data.supertype,...(Array.isArray(data.subtypes)?data.subtypes:[])].map(norm);
+    if(explicit.some(text=>label.test(text)&&!/\b(?:not|no|unknown|uncertain|unconfirmed|possibly|maybe|might|could)\b/.test(text)))return true;
+    // Notes can supply an explicit layout, but uncertainty or a negation must
+    // not turn a regular artwork-window card into a full-art card.
+    return norm(data.notes).split(/[.!?;]/).some(text=>label.test(text)&&!/\b(?:not|no|uncertain|possibly|maybe|might|could)\b/.test(text));
+  }
   const registry=[
     {id:'base2-4-holo',sets:['base set 2','base2'],number:4,total:130,name:'charizard',profile:'cosmos'},
     {id:'base1-2-holo',sets:['base set','base1'],number:2,total:102,name:'blastoise',profile:'starlight'}
@@ -51,14 +59,14 @@
     if(/^(non ?holo(?: ?foil)?|normal|regular|matte|standard)$/.test(finish))return {...base,source:'metadata',note:'Non-holo finish. No coloured foil.'};
     const holo=/^(holo(?: ?foil)?|holographic(?: ?foil)?|foil)$/.test(finish);
     const reverse=/^reverse(?: ?holo(?: ?foil)?| ?holographic(?: ?foil)?| ?foil)?$/.test(finish);
-    const {supertype,layout,swordShield}=classification(data);
+    const {supertype,layout,swordShield}=classification(data),fullArt=fullArtClassification(data);
     if(reverse){
       const tiles=supertype==='trainer'&&swordShield&&['en','eng','english'].includes(norm(data.language))&&!data.stamp;
       return {...base,printing:null,profile:tiles?'trainer-reverse':'reverse',region:supertype==='energy'?'full':'reverse',layout,source:tiles?'card-family':'metadata',note:tiles?'Saved reverse-holo finish · Trainer tile / chevron pattern inferred from this English Sword & Shield card. Pattern and foil area are approximate; the API does not specify the texture.':'Saved reverse-holo finish · approximate mirror reflection over the '+(supertype==='energy'?'whole Energy card':'card body, excluding the artwork')+'. The exact pattern and foil area are not known; adjust them if needed.'};
     }
     if(printing&&(!finish||holo))return {...base,profile:printing.profile,region:'print',source:'printing',note:'Printing-specific, hand-drawn mask · approximate '+profiles[printing.profile].label.toLowerCase()+'.'};
-    // Exact area and regional variants cannot be recovered from rarity alone.
-    // Full-art explicit finish labels are sufficient for a broad visual treatment.
+    // Explicit finish labels can choose a broad visual treatment. Rarity and
+    // layout refine coverage only after saved metadata has established foil.
     const full= /full art|full card|all over/.test(finish);
     let profile=null;
     if(full&&/gold/.test(finish))profile='gold';else if(full&&/rainbow/.test(finish))profile='rainbow';
@@ -66,6 +74,7 @@
     if(profile)return {...base,profile,region:'full',layout:'full-art',source:'metadata',note:'Full-card finish from saved metadata · approximate simulation.'};
     if(holo){
       const rarity=norm(data.rarity),notes=norm(data.notes);
+      if(fullArt)return {...base,printing:null,profile:'full-sheen',region:'full',layout:'full-art',source:'metadata',note:'Saved holo finish and full-art classification · approximate reflection over the whole card. The exact foil texture is not known.'};
       // The finish confirms foil; classification refines its coverage. A sleeve
       // description alone is not foil evidence, and rarity alone never enables it.
       const doubleRare=rarity==='double rare'||(/\bdouble rare (?:pok[eé]mon )?ex\b/.test(notes)&&! /\b(?:not|no|uncertain|possibly|maybe)\b[^.]*\bdouble rare\b/.test(notes));

@@ -56,6 +56,7 @@ const fixture=(name,status='matched')=>({data:{status,candidates:[{name,number:'
   assert.match(await page.locator('#detail-prices').textContent(),/Original quote: 5.4 USD \(currency assumed\)/);
   await page.locator('#close-detail').click();
   await page.reload();
+  await waitFor(()=>page.locator('.card-tile').count().then(n=>n===3));
   assert.equal(await page.locator('.card-tile').count(),3);
   assert.equal(count,3,'Reload must never resend scans');
   const saved = await page.evaluate(k=>JSON.parse(localStorage.getItem(k)).entries,key);

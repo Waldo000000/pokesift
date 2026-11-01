@@ -252,7 +252,7 @@ full-card sparkle,
 textured, rainbow, gold, cracked ice, and Poké Ball / Master Ball patterns.
 
 Automatic coverage is deliberately conservative. Two printing-specific
-silhouette masks are currently supplied. Saved `holo` / `holofoil` finishes use a
+silhouette masks are currently supplied. Saved holo cards classified as full art, Illustration Rare, Special Illustration Rare, Hyper Rare, or VMAX/VSTAR now use an approximate whole-card reflection instead of an upper artwork rectangle. Existing cards update locally in details, Binder and Fan without rescanning; explicit non-holo finishes and manual visual choices retain priority. The exact texture is not inferred from rarity alone. Saved `holo` / `holofoil` finishes use a
 labelled approximate reflection when no exact map exists; double-rare Pokémon ex
 identification selects whole-card sparkle. Automatic controls show the resolved
 pattern, coverage and layout. Saved reverse-holo finishes now activate a body
