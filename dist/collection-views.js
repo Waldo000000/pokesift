@@ -7,6 +7,10 @@
   const aliases=new Map();for(const p of species)for(const name of [p.name,...p.aliases])aliases.set(normalize(name),p.id);
   const known=[...aliases].sort((a,b)=>b[0].length-a[0].length);
   let mode='grid',engine=null,lastSnapshot='',artLoading=false;
+  // Use the outer viewport: removing the app header must not change the match.
+  const binderPhone=matchMedia('(pointer:coarse) and (orientation:landscape) and (max-height:540px) and (max-width:1000px)');
+  function fitBinder(){document.body.dataset.binderFocus=String(mode==='binder'&&binderPhone.matches);}
+  binderPhone.addEventListener('change',fitBinder);
   const artwork=new Map(),failedArt=new Set();
   const placeholder='data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><circle cx="128" cy="128" r="65" fill="#dce5d2" stroke="#8b9d7b" stroke-width="3"/><path d="M63 128h130" stroke="#8b9d7b" stroke-width="3"/><circle cx="128" cy="128" r="23" fill="#eff2e9" stroke="#8b9d7b" stroke-width="3"/></svg>');
   function detect(name){const text=normalize(name);if(aliases.has(text))return [aliases.get(text)];let remaining=' '+text+' ',found=[];for(const [alias,id] of known){if(alias.length<2)continue;const latin=/^[a-z0-9 ]+$/.test(alias),needle=latin?' '+alias+' ':alias;if(remaining.includes(needle)){found.push(id);remaining=remaining.split(needle).join(' ');}}return [...new Set(found)].slice(0,6);}
@@ -27,7 +31,7 @@
   function refresh(){if(mode==='grid'||!engine)return;const data=snapshot(),fingerprint=JSON.stringify(data);if(fingerprint!==lastSnapshot){lastSnapshot=fingerprint;engine.update(data);}if(mode==='zoo')ensureArtwork(data.pokemon.map(p=>p.id));}
   async function ensureArtwork(ids){if(artLoading)return;const queue=ids.filter(id=>!artwork.has(id)&&!failedArt.has(id));if(!queue.length)return;artLoading=true;try{while(queue.length&&mode==='zoo'){await Promise.all(queue.splice(0,2).map(async id=>{try{const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),16000);let response;try{response=await fetch('/api/pokemon-art?id='+id,{credentials:'same-origin',signal:controller.signal,cache:'force-cache'});}finally{clearTimeout(timeout);}if(!response.ok)throw Error();const blob=await response.blob();if(blob.size>2*1024*1024||blob.type!=='image/png')throw Error();const data=await PokeSiftPhotos.dataURL(blob);artwork.set(id,data);}catch{failedArt.add(id);}}));if(mode==='zoo'&&engine){lastSnapshot='';refresh();}}}finally{artLoading=false;if(mode==='zoo'&&engine)refresh();}}
   function select(next){if(!['grid','binder','desk','zoo'].includes(next))return;mode=next;engine=null;lastSnapshot='';for(const b of document.querySelectorAll('button[data-collection-view]')){b.classList.toggle('active',b.dataset.collectionView===mode);b.setAttribute('aria-pressed',String(b.dataset.collectionView===mode));}
-    $('grid-browsing').hidden=mode!=='grid';$('immersive-browsing').hidden=mode==='grid';document.body.dataset.collectionView=mode;
+    $('grid-browsing').hidden=mode!=='grid';$('immersive-browsing').hidden=mode==='grid';document.body.dataset.collectionView=mode;fitBinder();
     const previous=$('collection-room'),frame=previous.cloneNode();frame.removeAttribute('src');previous.replaceWith(frame);if(mode==='grid')return;frame.title={binder:'Your card binder',desk:'Your card fan',zoo:'Your Pokémon Zoo'}[mode];frame.src='/collection-room.html#'+mode;
   }
   window.PokeSiftRoomBridge={
@@ -36,6 +40,9 @@
     saveLayout(value){if(readOnlyStorage)return false;collectionViews=sanitizeLayout(value);save();return true;},
     detail(id){if(entries.some(e=>e.id===id))openDetail(id);},
     focusRoom(){ $('collection-room').scrollIntoView({block:'center',behavior:'instant'}); },
+    leaveBinder(){select('grid');},
+    addCards(){$('open-camera').click();},
+    binderPhone,
     notice:notify,
     retryArtwork(){failedArt.clear();refresh();},
     valid:()=>document.body.dataset.auth==='signed-in'&&mode!=='grid'

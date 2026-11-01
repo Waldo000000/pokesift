@@ -20,6 +20,18 @@
     const help=document.createElement('details'),label=document.createElement('summary');label.textContent=binder?'Arranging your binder':'How to browse';help.append(label);const instructions=document.querySelector(binder?'.pile-instructions':zoo?'.habitat-help':'.gesture-hint');if(instructions)help.append(instructions);dialog.append(help);
     const credits=document.querySelector('.shell>footer');credits.querySelector('span').textContent='Artwork credits';dialog.append(credits);document.body.append(dialog);
     toggle.onclick=()=>dialog.showModal();close.onclick=()=>dialog.close();dialog.addEventListener('click',event=>{if(event.target!==dialog)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();});
+    if(binder){
+      const controls=document.createElement('nav');controls.className='binder-focus-controls';controls.setAttribute('aria-label','Binder controls');
+      const button=(id,text,label,action)=>{const b=document.createElement('button');b.id=id;b.type='button';b.textContent=text;b.setAttribute('aria-label',label);b.title=label;b.onclick=action;controls.append(b);return b;};
+      button('binder-back','‹ All cards','Back to all cards',()=>bridge.leaveBinder());
+      button('binder-add','＋','Add cards',()=>bridge.addCards());
+      const aside=document.querySelector('.binder-aside');aside.id='binder-stacks';
+      const stacks=button('binder-stacks-toggle','Stacks','Show card stacks',()=>setStacks(!document.body.classList.contains('binder-stacks-open')));stacks.setAttribute('aria-controls',aside.id);
+      function setStacks(open){document.body.classList.toggle('binder-stacks-open',open);stacks.setAttribute('aria-expanded',String(open));stacks.setAttribute('aria-label',open?'Hide card stacks':'Show card stacks');aside.inert=bridge.binderPhone.matches&&!open;}
+      function fit(){document.body.classList.toggle('binder-phone-focus',bridge.binderPhone.matches);toggle.textContent=bridge.binderPhone.matches?'⋯':'Help & options';setStacks(false);}
+      bridge.binderPhone.addEventListener('change',fit);window.addEventListener('pagehide',()=>bridge.binderPhone.removeEventListener('change',fit),{once:true});
+      document.body.append(controls);fit();
+    }
     $('unclassified-list').addEventListener('click',event=>{if(event.target.closest('button'))dialog.close();},{capture:true});
     document.querySelector('.arrange-pokemon').addEventListener('click',()=>dialog.close());
     const cardDetail=$('detail');
