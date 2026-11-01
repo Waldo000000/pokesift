@@ -39,6 +39,8 @@
 .room-workspace.spread-binder.binder-phone-focus .page-controls{position:static;min-height:0;height:0;margin:0;gap:0}
 .room-workspace.spread-binder.binder-phone-focus .page-controls .circle-button{top:calc(50% - 22px);left:max(8px,env(safe-area-inset-left))}
 .room-workspace.spread-binder.binder-phone-focus .page-controls #next-page{left:auto;right:max(8px,env(safe-area-inset-right))}
+.room-workspace.spread-binder.binder-phone-focus.binder-stacks-open .page-controls #prev-page{left:auto;right:max(8px,env(safe-area-inset-right));top:calc(50% - 50px)}
+.room-workspace.spread-binder.binder-phone-focus.binder-stacks-open .page-controls #next-page{top:calc(50% + 6px)}
 .binder-phone-focus #page-label{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);z-index:2;padding:2px 7px;border-radius:5px;background:#f4f3edee;white-space:nowrap;font-size:9px;line-height:12px}
 .room-workspace.spread-binder.binder-phone-focus .physical-table .binder-aside{position:absolute;z-index:9;top:60px;bottom:60px;left:max(8px,env(safe-area-inset-left));width:clamp(88px,calc((100vw - var(--phone-book-width))/2 - 16px),132px);height:auto;padding:8px;border:1px solid #c9d4bf;border-radius:12px;background:#f4f3edf5;box-shadow:0 3px 15px #15261c22;visibility:hidden;pointer-events:none}
 .room-workspace.spread-binder.binder-phone-focus.binder-stacks-open .physical-table .binder-aside{visibility:visible;pointer-events:auto}
