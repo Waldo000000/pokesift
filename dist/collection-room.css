@@ -33,16 +33,43 @@
 .binder-phone-focus .binder-focus-controls button,.room-workspace.spread-binder.binder-phone-focus #room-options-toggle,.room-workspace.spread-binder.binder-phone-focus .page-controls .circle-button{position:fixed;z-index:10;display:grid;place-items:center;min-width:44px;width:44px;height:44px;min-height:44px;padding:0;border:1px solid #d0d9c7;border-radius:12px;background:#f4f3edee;color:#263d32;font:600 26px/1 ui-sans-serif,system-ui,sans-serif;box-shadow:0 2px 10px #15261c12}
 .binder-phone-focus #binder-back{top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));width:auto;padding:0 12px;font-size:12px}
 .room-workspace.spread-binder.binder-phone-focus #room-options-toggle{top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right))}
-.binder-phone-focus #binder-add{bottom:max(8px,env(safe-area-inset-bottom));right:max(8px,env(safe-area-inset-right))}
-.binder-phone-focus #binder-stacks-toggle{bottom:max(8px,env(safe-area-inset-bottom));left:max(8px,env(safe-area-inset-left));width:auto;padding:0 12px;font-size:12px}
+.binder-phone-focus #binder-add{bottom:max(8px,env(safe-area-inset-bottom));left:max(8px,env(safe-area-inset-left))}
+.binder-phone-focus #binder-stacks-toggle{bottom:max(8px,env(safe-area-inset-bottom));right:max(8px,env(safe-area-inset-right));width:auto;padding:0 12px;font-size:12px}
 .binder-phone-focus #binder-stacks-toggle[aria-expanded=true]{background:#285c46;color:white;border-color:#285c46}
 .room-workspace.spread-binder.binder-phone-focus .page-controls{position:static;min-height:0;height:0;margin:0;gap:0}
 .room-workspace.spread-binder.binder-phone-focus .page-controls .circle-button{top:calc(50% - 22px);left:max(8px,env(safe-area-inset-left))}
 .room-workspace.spread-binder.binder-phone-focus .page-controls #next-page{left:auto;right:max(8px,env(safe-area-inset-right))}
-.room-workspace.spread-binder.binder-phone-focus.binder-stacks-open .page-controls #prev-page{left:auto;right:max(8px,env(safe-area-inset-right));top:calc(50% - 50px)}
-.room-workspace.spread-binder.binder-phone-focus.binder-stacks-open .page-controls #next-page{top:calc(50% + 6px)}
+.room-workspace.spread-binder.binder-phone-focus.binder-stacks-open .page-controls #prev-page{left:max(8px,env(safe-area-inset-left));right:auto;top:calc(50% - 50px)}
+.room-workspace.spread-binder.binder-phone-focus.binder-stacks-open .page-controls #next-page{left:max(8px,env(safe-area-inset-left));right:auto;top:calc(50% + 6px)}
 .binder-phone-focus #page-label{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);z-index:2;padding:2px 7px;border-radius:5px;background:#f4f3edee;white-space:nowrap;font-size:9px;line-height:12px}
-.room-workspace.spread-binder.binder-phone-focus .physical-table .binder-aside{position:absolute;z-index:9;top:60px;bottom:60px;left:max(8px,env(safe-area-inset-left));width:clamp(88px,calc((100vw - var(--phone-book-width))/2 - 16px),132px);height:auto;padding:8px;border:1px solid #c9d4bf;border-radius:12px;background:#f4f3edf5;box-shadow:0 3px 15px #15261c22;visibility:hidden;pointer-events:none}
+.room-workspace.spread-binder.binder-phone-focus .physical-table .binder-aside{position:absolute;z-index:9;top:60px;bottom:60px;right:max(8px,env(safe-area-inset-right));width:clamp(88px,calc((100vw - var(--phone-book-width))/2 - 16px),132px);height:auto;padding:8px;border:1px solid #c9d4bf;border-radius:12px;background:#f4f3edf5;box-shadow:0 3px 15px #15261c22;visibility:hidden;pointer-events:none}
 .room-workspace.spread-binder.binder-phone-focus.binder-stacks-open .physical-table .binder-aside{visibility:visible;pointer-events:auto}
 .room-workspace.spread-binder.binder-phone-focus .piled-card{width:min(90%,calc((100cqh - 8px)*.7159),96px)}
 .room-workspace.spread-binder.binder-phone-focus .physical-count{font-size:8px!important}
+
+/* Portrait keeps the full book width, with both stacks below it on the right. */
+@media(max-width:640px) and (orientation:portrait){
+ .room-workspace.spread-binder{overflow:auto}
+ .room-workspace.spread-binder .shell{height:auto;min-height:100%}
+ .room-workspace.spread-binder .physical-table{display:flex;flex-direction:column;flex:none;gap:12px;padding:8px}
+ .room-workspace.spread-binder .physical-table>div{height:auto;container-type:inline-size}
+ .room-workspace.spread-binder .physical-table .binder-book{width:100%;max-width:none}
+ .room-workspace.spread-binder .physical-table .binder-aside{width:min(220px,100%);height:clamp(120px,calc(100dvh - 100vw/1.42 - 220px),280px);margin-left:auto;flex:none}
+ .room-workspace.spread-binder .stack-spots{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(0,1fr);gap:12px}
+ .room-workspace.spread-binder .piled-card{width:min(90%,calc((100cqh - 16px)*.7159),100px)}
+}
+
+.room-detail-toolbar{display:none}
+.room-workspace .card-inspect-detail.detail{padding:0;background:var(--paper)}
+.room-workspace .card-inspect-detail .room-detail-toolbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;background:var(--paper);border-bottom:1px solid var(--line);font-size:13px;font-weight:650}
+.room-workspace .card-inspect-detail .room-detail-toolbar .close-button{position:static;float:none;flex:none;margin:0}
+.room-workspace .card-inspect-detail #detail-content{padding:14px}
+@media(orientation:landscape) and (max-height:540px){
+ .room-workspace .card-inspect-detail.detail[open]{display:grid;grid-template-rows:auto minmax(0,1fr);height:calc(100dvh - 48px);overflow:hidden}
+ .room-workspace .card-inspect-detail #detail-content{min-height:0}
+ .room-workspace .card-inspect-detail .holding-detail{display:grid;grid-template-columns:minmax(0,42%) minmax(0,1fr);height:100%;min-height:0;container-type:size;gap:14px}
+ .room-workspace .card-inspect-detail .holding-detail>.foil-perspective{width:min(100%,calc(100cqh*.7159));margin:auto}
+ .room-workspace .card-inspect-detail .holding-detail>div:not(.foil-perspective){min-height:0;height:100%;width:100%;padding:0 8px;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;border-radius:0}
+ .room-workspace .card-inspect-detail .holding-detail h2{font-size:20px;line-height:1.2}
+ .room-workspace .card-inspect-detail .holding-detail p{font-size:11px;line-height:1.5}
+}

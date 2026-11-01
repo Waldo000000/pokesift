@@ -277,7 +277,7 @@ $('valuation-choice').onchange = event => {
   else delete e.selectedPriceKey;
   save(); render();
 };
-function openDetail(id) { pendingRemovalId=null;focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) $('detail-view').showModal();const e=entries.find(e=>e.id===id);if(e?.status==='matched'&&!e.canonicalImage)cacheCanonicalImage(e); }
+function openDetail(id) { pendingRemovalId=null;focusedId = id; showCapturedPhoto = false; $('raw-details').open = false; renderDetail(); if (!$('detail-view').open) {$('detail-view').showModal();$('detail-view').scrollTop=0;$('detail-view').querySelector('.detail-copy').scrollTop=0;}const e=entries.find(e=>e.id===id);if(e?.status==='matched'&&!e.canonicalImage)cacheCanonicalImage(e); }
 $('retry-catalog-image').onclick=()=>{const e=entries.find(e=>e.id===focusedId);if(e)cacheCanonicalImage(e,{force:true});};
 $('toggle-photo').onclick = () => { showCapturedPhoto = !showCapturedPhoto; renderDetail(); };
 $('close-detail').onclick = () => $('detail-view').close();

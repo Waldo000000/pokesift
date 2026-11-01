@@ -44,3 +44,15 @@ body:not([data-auth="signed-in"]) .workspace-header-actions{display:none}
 /* Landscape phones give the book the full app viewport; tablets keep the shell. */
 .workspace-app[data-binder-focus=true]{--app-header:0px;--app-nav:0px}
 .workspace-app[data-binder-focus=true] .topbar,.workspace-app[data-binder-focus=true] .collection-views{display:none}
+
+/* Fit the complete card in short windows; only the information pane scrolls. */
+@media(orientation:landscape) and (max-height:540px){
+ .workspace-app #detail-view[open]{display:grid;height:calc(100dvh - 48px);grid-template-columns:minmax(0,40%) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden}
+ .workspace-app #detail-view .detail-toolbar{grid-column:1/-1;grid-row:1;position:relative}
+ .workspace-app #detail-view .detail-image{grid-column:1;grid-row:2;display:flex;height:100%;min-height:0;padding:12px;container-type:size}
+ .workspace-app #detail-view .detail-image .foil-perspective{width:min(100%,calc(100cqh*.7159));max-width:none;margin:auto;flex:none}
+ .workspace-app #detail-view .tilt-hint{display:none}
+ .workspace-app #detail-view .detail-copy{grid-column:2;grid-row:2;width:100%;height:100%;max-width:none;min-height:0;margin:0;padding:12px 16px;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;border-radius:0;backdrop-filter:none}
+ .workspace-app #detail-view .detail-summary{display:block;padding-bottom:12px}
+ .workspace-app #detail-view #detail-meta{margin:8px 0}
+}

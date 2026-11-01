@@ -43,6 +43,10 @@ const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir()
    assert(popup.x>=23&&popup.y>=23&&popup.x+popup.width<=viewport.width-23&&popup.y+popup.height<=viewport.height-23,'Leave an easy-to-tap backdrop around card details');
    assert(close.width>=48&&close.height>=48,'The close button must have a generous touch target');
    assert(close.y>=popup.y&&close.y+close.height<=popup.y+popup.height,'The whole close target must remain inside the popup');
+   if(viewport.width>viewport.height&&viewport.height<=540){
+    assert(image.y>=popup.y&&image.y+image.height<=popup.y+popup.height,'Landscape details must show the entire card');
+    const pane=await page.locator('.detail-copy').boundingBox();await swipe(pane.x+pane.width*.7,pane.y+pane.height*.8,0,-100);await page.waitForFunction(()=>document.querySelector('.detail-copy').scrollTop>0);assert(await page.locator('#detail-view').isVisible(),'Vertical touch scrolling must stay inside details');assert.deepEqual(await page.locator('#detail-tilt').boundingBox(),image,'The whole card remains visible while details scroll');
+   }
    assert(await page.locator('#detail-value-summary').isVisible());assert.match(await page.locator('#detail-value-summary').textContent(),/A\$/);
    for(const selector of ['#valuation-choice','#remove-card']){await reveal(page,selector);assert(await page.locator(selector).isVisible());}
    await page.locator('#close-detail').click();
@@ -62,7 +66,7 @@ const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir()
     }
     await page.evaluate(()=>PokeSiftMotion.set('reduced'));await frame.locator('#card-fan .selected').press('Enter');await page.locator('#detail-view').waitFor();
     assert(!await page.locator('.species-correction').evaluate(el=>el.open),'Flicking an accordion must not activate its click action');const reduced=await page.locator('#detail-view').boundingBox();await swipe(reduced.x+reduced.width/2,reduced.y+36,-80,0);await page.locator('#detail-view').waitFor({state:'hidden'});await page.evaluate(()=>PokeSiftMotion.set('full'));
-    frame=await view('binder');await frame.locator('#binder-rotate').waitFor();assert(await frame.locator('#binder-layout').isHidden());await page.setViewportSize({width:844,height:390});await frame.locator('#binder-layout').waitFor();assert(within(await frame.locator('.binder-book').boundingBox(),{width:844,height:390}));assert(within(await frame.locator('#card-pile').boundingBox(),{width:844,height:390}));await page.screenshot({path:'/tmp/pokesift-workspace-binder.png'});
+    frame=await view('binder');await frame.locator('#binder-layout').waitFor();assert.equal(await frame.locator('#binder-rotate').count(),0);await page.setViewportSize({width:844,height:390});await frame.locator('#binder-layout').waitFor();assert(within(await frame.locator('.binder-book').boundingBox(),{width:844,height:390}));assert(within(await frame.locator('#card-pile').boundingBox(),{width:844,height:390}));await page.screenshot({path:'/tmp/pokesift-workspace-binder.png'});
     await frame.locator('#binder-stacks-toggle').click();await frame.locator('#card-pile .piled-card').last().press('Enter');await frame.locator('#detail').waitFor();
     const held=await frame.locator('#detail').boundingBox();assert(held.x>=23&&held.x+held.width<=844-23);await page.touchscreen.tap(held.x/2,held.y+50);await frame.locator('#detail').waitFor({state:'hidden'});
     assert.equal(await frame.locator('#binder-spread').getAttribute('data-start-page'),'0','Dismissing the binder popup must retain the page');

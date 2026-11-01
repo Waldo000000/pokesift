@@ -35,6 +35,7 @@
     $('unclassified-list').addEventListener('click',event=>{if(event.target.closest('button'))dialog.close();},{capture:true});
     document.querySelector('.arrange-pokemon').addEventListener('click',()=>dialog.close());
     const cardDetail=$('detail');
+    const detailBar=document.createElement('header');detailBar.className='room-detail-toolbar';const detailTitle=document.createElement('span');detailTitle.textContent='Card actions';detailBar.append(detailTitle,$('close-detail'));cardDetail.prepend(detailBar);
     window.parent.PokeSiftWorkspace?.enableFlickToDismiss(cardDetail);
     cardDetail.addEventListener('click',event=>{if(event.target!==cardDetail)return;const r=cardDetail.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)cardDetail.close();});
   },{once:true});
