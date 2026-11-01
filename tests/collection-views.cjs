@@ -33,33 +33,24 @@ f=await view('zoo');await f.locator('[data-pokemon="225"]').waitFor();assert.equ
 await roomOptions(f);await f.locator('#unclassified-summary').click();await f.locator('#unclassified-list button').click();await p.locator('.species-correction summary').click();await p.locator('#pokemon-species').fill('Charizard');await p.locator('#save-pokemon-species').click();await p.locator('#close-detail').click();await f.locator('[data-pokemon="6"]').waitFor();assert.equal(await f.locator('.habitat-pokemon').count(),4);await f.locator('[data-pokemon="25"]').focus();await f.locator('[data-pokemon="25"]').press('Shift+ArrowRight');await p.waitForTimeout(200);stored=await p.evaluate(k=>JSON.parse(localStorage.getItem(k)),key);assert(stored.collectionViews.positions[25]);assert.deepEqual(stored.entries.find(e=>e.id==='unknown').pokemonSpeciesIds,[6]);await p.screenshot({path:'/tmp/pokesift-live-collection-zoo.png',fullPage:true});
 const download=p.waitForEvent('download');await reveal(p,'#export');await p.locator('#export').click();const dl=await download;const stream=await dl.createReadStream(),chunks=[];for await(const chunk of stream)chunks.push(chunk);const backup=JSON.parse(Buffer.concat(chunks));assert.equal(backup.backupVersion,4);assert.equal(backup.collectionViews.slots[0],entry);assert(backup.collectionViews.positions[25]);assert.equal(paidCalls,0);
 const c2=await context(false),restored=await c2.newPage();restored.on('pageerror',e=>errors.push(e.message));restored.on('dialog',d=>d.accept());await restored.goto(base);await reveal(restored,'#import-backup');await restored.locator('#import-backup').waitFor();await restored.locator('#backup-file').setInputFiles({name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))});await restored.locator('.card-tile').first().waitFor();const restoredState=await restored.evaluate(k=>JSON.parse(localStorage.getItem(k)),key);assert.equal(restoredState.collectionViews.slots[0],entry);assert.deepEqual(restoredState.collectionViews.positions[25],stored.collectionViews.positions[25]);await closeTools(restored);await restored.locator('[data-collection-view="binder"]').click();await restored.frameLocator('#collection-room').locator('[data-slot="0"] .sleeved-card').waitFor();await restored.reload();await closeTools(restored);await closeTools(restored);await restored.locator('[data-collection-view="binder"]').click();await restored.frameLocator('#collection-room').locator('[data-slot="0"] .sleeved-card').waitFor();
-await p.setViewportSize({width:390,height:844});f=await view('binder');await f.locator('#binder-spread .binder-leaf').first().waitFor();assert.equal(await f.locator('#binder-spread>.binder-leaf').count(),1);assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.screenshot({path:'/tmp/pokesift-live-collection-mobile.png',fullPage:true});
-// A phone shows the right-hand leaf only: previous pages must unfold from the
-// left spine, reversing a forward turn rather than hinging off the right edge.
-await f.locator('#next-page').click();await f.locator('#binder-spread[data-start-page="1"]').waitFor();
+await p.setViewportSize({width:390,height:844});f=await view('binder');await f.locator('#binder-rotate').waitFor();assert(await f.locator('#binder-layout').isHidden());assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.screenshot({path:'/tmp/pokesift-live-collection-mobile.png',fullPage:true});
+await p.setViewportSize({width:844,height:390});await f.locator('#binder-layout').waitFor();assert.equal(await f.locator('#binder-spread>[data-page]').count(),1);assert.equal(await f.locator('#binder-spread>.leaf-right').getAttribute('data-page'),'0');
+await f.locator('#next-page').click();await f.locator('#binder-spread[data-start-page="1"]').waitFor();await f.locator('.turning-sheet').waitFor({state:'detached'});
+// The back of page 2 turns from the left onto page 1 on the right.
 for(const corner of ['top','bottom']){
-  await f.locator(`.corner-${corner}.corner-left:not(:disabled)`).scrollIntoViewIfNeeded();
-  const leafBounds=await f.locator('#binder-spread>.binder-leaf').boundingBox();
-  const cornerBounds=await f.locator(`.corner-${corner}.corner-left:not(:disabled)`).boundingBox();
-  const x=cornerBounds.x+cornerBounds.width/2,y=cornerBounds.y+cornerBounds.height/2;
-  await p.mouse.move(x,y);await p.mouse.down();
-  const incoming=f.locator('.turning-sheet .strip-face:not(.strip-back) .binder-leaf');
-  assert.equal(await incoming.first().getAttribute('data-page'),'0','Backward turns must show the incoming previous page');
-  const bounds=()=>f.locator('.page-strip').evaluateAll(nodes=>{const rs=nodes.map(n=>n.getBoundingClientRect());return {left:Math.min(...rs.map(r=>r.left)),right:Math.max(...rs.map(r=>r.right))};});
-  // Geometry inside the iframe is local; use the resting leaf in that frame.
-  const resting=await f.locator('#binder-spread>.binder-leaf').evaluate(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right};});
-  assert((await bounds()).right<=resting.left+2,'The previous page must begin to the left of the visible leaf');
-  assert.equal(await f.locator('#binder-spread>.binder-leaf').getAttribute('data-page'),'1','The current page must remain underneath the incoming page');
-  await p.mouse.move(x+leafBounds.width*2,y,{steps:12});
-  const landed=await bounds();assert(Math.abs(landed.left-resting.left)<2&&Math.abs(landed.right-resting.right)<2,'The previous page must unfold onto the visible leaf');
-  await p.mouse.up();await f.locator('#binder-spread[data-start-page="0"]').waitFor();
-  await f.locator('#next-page').click();await f.locator('#binder-spread[data-start-page="1"]').waitFor();
+  const button=f.locator(`.corner-${corner}.corner-left:not(:disabled)`);await button.scrollIntoViewIfNeeded();
+  const leafBounds=await f.locator('#binder-spread>.leaf-left').boundingBox(),rightBounds=await f.locator('#binder-spread>.leaf-right').boundingBox(),cornerBounds=await button.boundingBox();
+  const x=cornerBounds.x+cornerBounds.width/2,y=cornerBounds.y+cornerBounds.height/2;await p.mouse.move(x,y);await p.mouse.down();
+  assert.equal(await f.locator('.turning-sheet .strip-face:not(.strip-back) .binder-leaf').first().getAttribute('data-page'),'1');assert.equal(await f.locator('.turning-sheet .strip-back .binder-leaf').first().getAttribute('data-page'),'0');
+  assert.equal(await f.locator('#binder-spread>.leaf-right').getAttribute('data-page'),'2','The right-hand page stays underneath the turning sheet');
+  await p.mouse.move(x+leafBounds.width*2,y,{steps:12});await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  const landed=await f.locator('.page-strip').evaluateAll(ns=>{const rs=ns.map(n=>n.getBoundingClientRect());return {left:Math.min(...rs.map(r=>r.left)),right:Math.max(...rs.map(r=>r.right))};});
+  const resting=await f.locator('#binder-spread>.leaf-right').evaluate(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right};});assert(Math.abs(landed.left-resting.left)<2&&Math.abs(landed.right-resting.right)<2,'The previous page lands on the right of the spine');
+  await p.mouse.up();await f.locator('#binder-spread[data-start-page="0"]').waitFor();await f.locator('.turning-sheet').waitFor({state:'detached'});
+  await f.locator('#next-page').click();await f.locator('#binder-spread[data-start-page="1"]').waitFor();await f.locator('.turning-sheet').waitFor({state:'detached'});
 }
-// Releasing a short backward pull returns the incoming page to the left.
-const cancelCorner=await f.locator('.corner-top.corner-left:not(:disabled)').boundingBox();
-await p.mouse.move(cancelCorner.x+cancelCorner.width/2,cancelCorner.y+cancelCorner.height/2);await p.mouse.down();
-await p.mouse.move(cancelCorner.x+cancelCorner.width/2+6,cancelCorner.y+cancelCorner.height/2);await p.mouse.up();
-await f.locator('.turning-sheet').waitFor({state:'detached'});assert.equal(await f.locator('#binder-spread').getAttribute('data-start-page'),'1');
+const cancelCorner=await f.locator('.corner-top.corner-left:not(:disabled)').boundingBox();await p.mouse.move(cancelCorner.x+12,cancelCorner.y+12);await p.mouse.down();await p.mouse.move(cancelCorner.x+18,cancelCorner.y+12);await p.mouse.up();await f.locator('.turning-sheet').waitFor({state:'detached'});assert.equal(await f.locator('#binder-spread').getAttribute('data-start-page'),'1');
+await p.setViewportSize({width:390,height:844});
 assert.equal(await p.evaluate(()=>Object.keys(localStorage).filter(k=>k.startsWith('pokesift.prototype')).length),0);
 // The live collection iframe uses the same thumb tracking as the prototype:
 // movement before a hold is retained and held motion follows at full scale.
@@ -111,7 +102,7 @@ await nativeFanTouch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoint
 for(const field of ['top','caption','body'])assert(Math.max(...heldRows.map(r=>r[field]))-Math.min(...heldRows.map(r=>r[field]))<.5,'Held sifting must not move the fan vertically when labels change');
 await closeTools(p);await p.locator('[data-collection-view="grid"]').click();
 await p.evaluate(()=>{entries=entries.filter(e=>e.id!=='unknown');save();render();});
-f=await view('binder');assert.equal(await f.locator('[data-slot="0"] .sleeved-card').count(),0);
+await p.setViewportSize({width:844,height:390});f=await view('binder');assert.equal(await f.locator('[data-slot="0"] .sleeved-card').count(),0);
 assert.match(await f.locator('#physical-count').textContent(),/0 sleeved · 4 stacked/);
 await p.evaluate(()=>{readOnlyStorage=true;PokeSiftViews.refresh();});
 await f.locator('#card-pile .piled-card').last().dragTo(f.locator('[data-slot="1"]'));

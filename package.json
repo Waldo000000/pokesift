@@ -16,7 +16,8 @@
     "test:startup": "node tests/startup.cjs",
     "test:catalog-review": "node tests/catalog-review.cjs",
     "test:workspace": "node tests/workspace.cjs",
-    "test:friend-invites": "node tests/friend-invites.cjs"
+    "test:friend-invites": "node tests/friend-invites.cjs",
+    "test:binder-spreads": "node tests/binder-spreads.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

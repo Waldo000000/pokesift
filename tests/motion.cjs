@@ -33,10 +33,10 @@ try{
   await page.emulateMedia({reducedMotion:'no-preference'});await fanMove(true);
   await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.evaluate(()=>PokeSiftMotion.matches),true);
   await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('full');
-  await page.goto(base+'/concepts/binder.html');await page.locator('#next-page').click();
+  await page.setViewportSize({width:844,height:390});await page.goto(base+'/concepts/binder.html');await page.locator('#next-page').click();
   assert.equal(await page.locator('.turning-sheet').count(),1,'Binder turn must animate with OS Reduce Motion on');await page.waitForTimeout(800);
   await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('reduced');await page.locator('#next-page').click();assert.equal(await page.locator('.turning-sheet').count(),0);
-  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('full');await page.goto(base+'/concepts/zoo.html');
+  await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('full');await page.setViewportSize({width:390,height:844});await page.goto(base+'/concepts/zoo.html');
   await page.locator('[data-pokemon="25"]').focus();await page.locator('[data-pokemon="25"]').press('Enter');
   assert(await page.locator('[data-pokemon="25"] img').evaluate(n=>n.getAnimations().length>0),'Zoo tap animation must run with full app motion');
   await page.keyboard.press('Escape');await reveal(page,'[data-motion-choice]');await page.locator('[data-motion-choice]').selectOption('reduced');

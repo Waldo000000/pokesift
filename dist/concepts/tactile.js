@@ -4,11 +4,13 @@
 (() => {
   const STORE='pokesift.prototype.physical.v2';
   const reduced=()=>window.PokeSiftMotion?.matches||false;
-  const spreadMedia=matchMedia('(min-width: 900px) and (orientation: landscape)');
+  const binderMedia=(runtime?window.parent:window).matchMedia('(min-width: 900px), (orientation: landscape)');
   let layout={slots:[],piles:[[],[]],positions:{}},mainFan=null,detailFan=null,drag=null,turn=null,floatFan=null,floatAnchor=null;
   if(runtime)layout=structuredClone(runtime.layout);
   else try {const saved=JSON.parse(localStorage.getItem(STORE)||localStorage.getItem('pokesift.prototype.physical.v1'));if(saved&&Array.isArray(saved.slots)&&saved.positions&&typeof saved.positions==='object')layout={slots:saved.slots,piles:Array.isArray(saved.piles)?saved.piles:[saved.pile||[],[]],positions:saved.positions};}catch{}
-  const pageStep=()=>spreadMedia.matches?2:1;
+  const binderAvailable=()=>theme!=='binder'||binderMedia.matches;
+  const spreadStart=index=>index<=0?0:index%2?index:index-1;
+  const nextPage=direction=>direction===1?(page===0?1:page+2):(page<=1?0:page-2);
   function reconcile() {
     const keys=new Set(cards.map(c=>c.key)),seen=new Set();
     if(!layout.slots.length){layout.slots=cards.slice(0,9).map(c=>c.key);layout.piles=[cards.slice(9).map(c=>c.key),[]];}
@@ -20,6 +22,7 @@
   function persist(){if(runtime){if(!runtime.persist(layout)){layout=structuredClone(runtime.layout);note('This collection is read-only. Reload the page before arranging cards.');return false;}runtime.layout=structuredClone(layout);return true;}try{localStorage.setItem(STORE,JSON.stringify(layout));}catch{note('This demo arrangement could not be saved.');}}
   function locate(key){const slot=layout.slots.indexOf(key);if(slot>=0)return {slot};const stack=layout.piles.findIndex(p=>p.includes(key));return {stack,index:layout.piles[stack]?.indexOf(key)};}
   function place(key,slot=null,stack=0) {
+    if(!binderAvailable())return false;
     if(runtime?.readOnly){note('Reload the page before rearranging this collection.');return false;}
     const origin=locate(key);
     if(slot!==null&&layout.slots[slot]){if(layout.slots[slot]!==key)note('That sleeve is occupied. Clear it using a stack first.');return false;}
@@ -28,7 +31,7 @@
     if(slot===null)layout.piles[stack].push(key);else layout.slots[slot]=key;
     persist();renderCards();return true;
   }
-  function freeSleeve(key){let slot=layout.slots.findIndex((k,i)=>!k&&i>=page*9&&i<(page+pageStep())*9);if(slot<0)slot=layout.slots.indexOf(null);if(slot<0){slot=layout.slots.length;layout.slots.push(...Array(18).fill(null));}page=Math.floor(Math.floor(slot/9)/pageStep())*pageStep();place(key,slot);}
+  function freeSleeve(key){if(!binderAvailable())return;let slot=layout.slots.findIndex((k,i)=>!k&&i>=page*9&&i<(page===0?1:page+2)*9);if(slot<0)slot=layout.slots.indexOf(null);if(slot<0){slot=layout.slots.length;layout.slots.push(...Array(18).fill(null));}page=spreadStart(Math.floor(slot/9));place(key,slot);}
 
   // One pointer-driven fan is shared by the full browser and Pokémon details.
   function makeFan(host,list,{initialIndex=Math.max(0,list.length-1),onChange=()=>{},onOpen=cardDetail}={}) {
@@ -115,6 +118,8 @@
   aside.innerHTML='<p class="eyebrow">MAKE A LITTLE ROOM</p><h3>Your stacks</h3><div class="stack-spots"><section><h4>Stack one <span id="pile-count-0"></span></h4><div id="card-pile" class="card-pile" data-pile-drop="0" role="region" aria-label="Stack one"></div></section><section><h4>Stack two <span id="pile-count-1"></span></h4><div id="card-pile-1" class="card-pile" data-pile-drop="1" role="region" aria-label="Stack two"></div></section></div><p class="pile-instructions">Drag cards in any direction. Drop into any empty sleeve or onto either stack. Drag an empty sleeve to turn the page.</p><p id="physical-count" class="physical-count" role="status"></p>';
   const table=$('binder-layout'),book=table.querySelector('.binder-book');
   table.classList.add('physical-table');
+  const rotate=document.createElement('section');rotate.id='binder-rotate';rotate.className='binder-rotate';rotate.setAttribute('role','status');rotate.setAttribute('aria-live','polite');rotate.innerHTML='<svg viewBox="0 0 80 80" aria-hidden="true"><rect x="25" y="12" width="30" height="54" rx="6" transform="rotate(35 40 40)"/><path d="M8 35A33 33 0 0 1 45 7M45 7l-9-4m9 4-5 9M72 45A33 33 0 0 1 35 73m0 0 9 4m-9-4 5-9"/></svg><h2>Turn your phone sideways</h2><p>Open both sides of your binder in landscape to arrange your cards.</p><small>If needed, turn off your phone’s rotation lock.</small>';
+  rotate.hidden=true;table.before(rotate);if(theme==='binder')document.body.classList.add('spread-binder');
   book.querySelector('#pocket-grid').replaceWith(Object.assign(document.createElement('div'),{id:'binder-spread',className:'binder-spread'}));
   $('card-fan').onpointerdown=$('card-fan').onpointerup=$('card-fan').onpointercancel=$('card-fan').onkeydown=null;
   $('thumbnail-rail').hidden=true;
@@ -126,11 +131,12 @@
       const sleeve=document.createElement('div');sleeve.className='sleeve-front';sleeve.setAttribute('aria-hidden','true');pocket.append(sleeve);grid.append(pocket);
     });sheet.append(grid);
     const number=document.createElement('span');number.className='leaf-number';number.textContent=String(pageNumber+1).padStart(2,'0');sheet.append(number);
-    if(corners){const directions=spreadMedia.matches?[side==='right'?1:-1]:[-1,1];for(const direction of directions)for(const corner of ['top','bottom']){const button=document.createElement('button');button.className='page-corner corner-'+corner+(direction===1?' corner-right':' corner-left');button.dataset.turnDirection=direction;button.dataset.turnCorner=corner;button.disabled=page+direction*pageStep()<0||page+direction*pageStep()>=layout.slots.length/9;button.setAttribute('aria-label',`Turn ${direction===1?'next':'previous'} page from ${corner} corner`);button.onclick=e=>{if(e.detail===0)turnPage(direction,corner);};sheet.append(button);}}
+    if(corners){for(const direction of [side==='right'?1:-1])for(const corner of ['top','bottom']){const button=document.createElement('button');button.className='page-corner corner-'+corner+(direction===1?' corner-right':' corner-left');button.dataset.turnDirection=direction;button.dataset.turnCorner=corner;button.disabled=!binderAvailable()||nextPage(direction)<0||nextPage(direction)>=layout.slots.length/9||direction===-1&&page===0;button.setAttribute('aria-label',`Turn ${direction===1?'next':'previous'} page from ${corner} corner`);button.onclick=e=>{if(e.detail===0)turnPage(direction,corner);};sheet.append(button);}}
     return sheet;
   }
-  function pageLeaves(start){return Array.from({length:pageStep()},(_,i)=>leaf(start+i,{side:spreadMedia.matches&&i===0?'left':'right'}));}
-  function renderBook(leaves=pageLeaves(page)){const spread=$('binder-spread');book.classList.toggle('two-page',spreadMedia.matches);spread.replaceChildren(...leaves);spread.dataset.startPage=page;spread.querySelectorAll('.page-corner').forEach(b=>{const next=page+Number(b.dataset.turnDirection)*pageStep();b.disabled=next<0||next>=layout.slots.length/9;});$('page-label').textContent=spreadMedia.matches?`PAGES ${page+1}–${page+2} / ${layout.slots.length/9}`:`PAGE ${page+1} / ${layout.slots.length/9}`;$('prev-page').disabled=page===0;$('next-page').disabled=page+pageStep()>=layout.slots.length/9;}
+  function cover(side){const n=document.createElement('section');n.className='binder-leaf binder-cover leaf-'+side;n.setAttribute('aria-label','Inside '+(side==='left'?'front':'back')+' cover');return n;}
+  function pageLeaves(start){return [start===0?cover('left'):leaf(start,{side:'left'}),start===0?leaf(0):start+1<layout.slots.length/9?leaf(start+1):cover('right')];}
+  function renderBook(leaves=pageLeaves(page)){const spread=$('binder-spread'),total=layout.slots.length/9,available=binderAvailable();book.classList.add('two-page');spread.replaceChildren(...leaves);spread.dataset.startPage=page;spread.querySelectorAll('.page-corner').forEach(b=>{const direction=Number(b.dataset.turnDirection),next=nextPage(direction);b.disabled=!available||next<0||next>=total||direction===-1&&page===0;});$('page-label').textContent=page===0||page+1>=total?`PAGE ${page+1} / ${total}`:`PAGES ${page+1}–${page+2} / ${total}`;$('prev-page').disabled=!available||page===0;$('next-page').disabled=!available||nextPage(1)>=total;if(theme==='binder'){rotate.hidden=available;table.hidden=!available;table.inert=!available;document.body.dataset.binderReady=String(available);}}
   renderCards=function(){
     if(theme==='desk'){
       // First in the sort order belongs on top: the rightmost physical card.
@@ -144,7 +150,7 @@
       caption.append(sizing);
       mainFan=makeFan($('card-fan'),list,{initialIndex:retained>=0?retained:Math.max(0,list.length-1),onChange:(i,c)=>{index=i;$('fan-name').textContent=c?.name||'No cards here yet';$('fan-meta').textContent=c?[c.type,c.set,c.edition].join(' · '):'';$('fan-position').textContent=c?`${list.length-i} / ${list.length} CARDS`:'';$('fan-prev').disabled=i<=0;$('fan-next').disabled=i>=list.length-1;}});fanSelectionReset=false;$('thumbnail-rail').replaceChildren();return;
     }
-    reconcile();page=Math.floor(Math.max(0,Math.min(page,layout.slots.length/9-1))/pageStep())*pageStep();$('no-cards').hidden=true;renderBook();
+    reconcile();page=spreadStart(Math.max(0,Math.min(page,layout.slots.length/9-1)));$('no-cards').hidden=true;renderBook();
     layout.piles.forEach((pileKeys,stack)=>{const pile=$(stack?'card-pile-1':'card-pile');pile.replaceChildren();pile.classList.toggle('empty',!pileKeys.length);pileKeys.slice(-6).forEach((key,j)=>{const i=Math.max(0,pileKeys.length-6)+j,c=cards.find(c=>c.key===key),b=document.createElement('button');b.className='piled-card';b.dataset.cardKey=key;b.setAttribute('aria-label',c.name+' on stack '+(stack+1)+'. Drag into an empty sleeve or the other stack.');b.style.setProperty('--pile-angle',((i*7)%13-6)+'deg');b.style.setProperty('--pile-x',((i*3)%9-4)+'px');b.style.setProperty('--pile-y',Math.min(i,14)*2+'px');b.style.zIndex=i+1;const top=i===pileKeys.length-1;b.disabled=!top;b.tabIndex=top?0:-1;b.setAttribute('aria-hidden',String(!top));b.innerHTML=`<img src="${escapeHTML(img(c))}" alt="${escapeHTML(c.name)}" draggable="false">`;b.onclick=e=>{if(e.detail===0&&top)cardDetail(c);};pile.append(b);});$('pile-count-'+stack).textContent=pileKeys.length;});
     $('physical-count').textContent=`${layout.slots.filter(Boolean).length} sleeved · ${layout.piles.flat().length} stacked`;
   };
@@ -164,23 +170,21 @@
   }
   function readyPageImages(leaves){return Promise.allSettled(leaves.flatMap(n=>[...n.querySelectorAll('img')]).map(img=>{img.loading='eager';img.decoding='sync';return img.decode?.();}));}
   function startTurn(direction,corner='bottom') {
-    if(turn||drag)return false;const target=page+direction*pageStep();if(target<0||target>=layout.slots.length/9)return false;
-    // A single-page binder stays hinged at the left spine in both directions.
-    // Going back brings the previous page in by reversing the forward fold.
-    const reverseTurn=!spreadMedia.matches&&direction===-1,foldDirection=reverseTurn?1:direction;
-    const spread=$('binder-spread'),source=direction===1?spread.lastElementChild:spread.firstElementChild,rect=source.getBoundingClientRect(),bounds=book.getBoundingClientRect(),gap=spreadMedia.matches?parseFloat(getComputedStyle(spread).gap):0;
+    if(turn||drag||!binderAvailable()||direction===-1&&page===0)return false;const target=nextPage(direction);if(target<0||target>=layout.slots.length/9)return false;
+    const foldDirection=direction;
+    const spread=$('binder-spread'),source=direction===1?spread.lastElementChild:spread.firstElementChild,rect=source.getBoundingClientRect(),bounds=book.getBoundingClientRect(),gap=parseFloat(getComputedStyle(spread).gap);
     const sheet=document.createElement('div');sheet.className='turning-sheet curved-sheet';sheet.setAttribute('aria-hidden','true');sheet.inert=true;Object.assign(sheet.style,{left:rect.left-bounds.left+'px',top:rect.top-bounds.top+'px',width:rect.width+'px',height:rect.height+'px'});
-    const resting=[...spread.children],destination=pageLeaves(target),front=reverseTurn?destination[0]:source,back=reverseTurn?source:destination[direction===1?0:destination.length-1];
+    const resting=[...spread.children],destination=pageLeaves(target),front=source,back=destination[direction===1?0:destination.length-1];
     const ready=readyPageImages(destination);
     const pockets=[...source.querySelectorAll('.physical-pocket')].slice(0,3).map(n=>n.getBoundingClientRect());
     const cuts=[0,(pockets[0].right+pockets[1].left)/2-rect.left,(pockets[1].right+pockets[2].left)/2-rect.left,rect.width],strips=[];
     for(let i=0;i<3;i++){const column=foldDirection===1?i:2-i,start=cuts[column],w=cuts[column+1]-start,strip=document.createElement('div');strip.className='page-strip';strip.dataset.column=column;strip.foldWidth=w;strip.lights=[];Object.assign(strip.style,{left:'0px',width:w+.25+'px',height:rect.height+'px',transformOrigin:foldDirection===1?'left center':'right center'});
       for(const [face,reverse] of [[front,false],[back,true]]){const mask=document.createElement('div');mask.className='strip-face'+(reverse?' strip-back':'');const content=turnFace(face,reverse?2-column:column,-(reverse?rect.width-start-w:start),rect.width,rect.height),light=document.createElement('div');light.className='strip-light';mask.append(content,light);strip.lights.push(light);strip.append(mask);}sheet.append(strip);strips.push(strip);
     }
-    if(spreadMedia.matches){if(direction===1)spread.lastElementChild.replaceWith(destination[1]);else spread.firstElementChild.replaceWith(destination[0]);}else if(!reverseTurn)spread.replaceChildren(destination[0]);
-    book.append(sheet);book.classList.add('page-turning');turn={direction,foldDirection,reverseTurn,corner,target,sheet,strips,gap,resting,destination,ready,width:rect.width,progress:0,frame:0,inputFrame:0,finishing:false};paintTurn(0);return true;
+    if(direction===1)spread.lastElementChild.replaceWith(destination[1]);else spread.firstElementChild.replaceWith(destination[0]);
+    book.append(sheet);book.classList.add('page-turning');turn={direction,foldDirection,corner,target,sheet,strips,gap,resting,destination,ready,width:rect.width,progress:0,frame:0,inputFrame:0,finishing:false};paintTurn(0);return true;
   }
-  function paintTurn(progress){if(!turn)return;const t=turn;t.progress=progress;const fold=t.reverseTurn?1-progress:progress,direction=t.foldDirection,wave=Math.sin(fold*Math.PI);let x=direction===1?0:t.width,z=0;
+  function paintTurn(progress){if(!turn)return;const t=turn;t.progress=progress;const fold=progress,direction=t.foldDirection,wave=Math.sin(fold*Math.PI);let x=direction===1?0:t.width,z=0;
     t.strips.forEach((strip,i)=>{const w=strip.foldWidth,angle=Math.PI*fold+wave*.6*(i-1),dy=0,left=direction===1?x:x-w;
       strip.style.transform=`translate3d(${left-direction*t.gap*fold}px,${dy}px,${z}px) rotateY(${-direction*angle*180/Math.PI}deg)`;const shade=String(Math.abs(Math.sin(angle))*.22);strip.lights.forEach(light=>light.style.opacity=shade);x+=direction*Math.cos(angle)*w;z+=Math.sin(angle)*w;
     });book.dataset.turnProgress=progress.toFixed(3);
@@ -200,8 +204,8 @@
   function turnPage(direction,corner='bottom'){if(startTurn(direction,corner))settleTurn(true);}
   $('prev-page').onclick=()=>turnPage(-1);$('next-page').onclick=()=>turnPage(1);
   let pageGrab=null;
-  book.addEventListener('pointerdown',e=>{if(e.button!==0||turn||drag)return;const corner=e.target.closest('.page-corner'),vacant=e.target.closest('.physical-pocket.vacant');if(corner&&!corner.disabled){e.stopPropagation();if(startTurn(Number(corner.dataset.turnDirection),corner.dataset.turnCorner)){turn.pointer=e.pointerId;turn.startX=e.clientX;turn.moved=false;book.setPointerCapture(e.pointerId);}}else if(vacant){e.stopPropagation();const leaf=vacant.closest('.binder-leaf'),r=leaf.getBoundingClientRect();pageGrab={id:e.pointerId,x:e.clientX,y:e.clientY,side:leaf.classList.contains('leaf-left')?-1:1,corner:e.clientY<r.top+r.height/2?'top':'bottom'};book.setPointerCapture(e.pointerId);}});
-  book.addEventListener('pointermove',e=>{if(pageGrab?.id===e.pointerId){const g=pageGrab,dx=e.clientX-g.x;if(Math.abs(dx)<5||Math.abs(dx)<Math.abs(e.clientY-g.y)*.65)return;const direction=dx<0?1:-1;if(spreadMedia.matches&&direction!==g.side)return;if(!startTurn(direction,g.corner))return;turn.pointer=e.pointerId;turn.startX=g.x;turn.moved=true;pageGrab=null;}if(!turn||turn.finishing||turn.pointer!==e.pointerId)return;const distance=(turn.startX-e.clientX)*turn.direction;if(Math.abs(distance)>4)turn.moved=true;followTurn(Math.acos(Math.max(-1,Math.min(1,1-distance/turn.width)))/Math.PI);});
+  book.addEventListener('pointerdown',e=>{if(e.button!==0||turn||drag||!binderAvailable())return;const corner=e.target.closest('.page-corner'),vacant=e.target.closest('.physical-pocket.vacant');if(corner&&!corner.disabled){e.stopPropagation();if(startTurn(Number(corner.dataset.turnDirection),corner.dataset.turnCorner)){turn.pointer=e.pointerId;turn.startX=e.clientX;turn.moved=false;book.setPointerCapture(e.pointerId);}}else if(vacant){e.stopPropagation();const leaf=vacant.closest('.binder-leaf'),r=leaf.getBoundingClientRect();pageGrab={id:e.pointerId,x:e.clientX,y:e.clientY,side:leaf.classList.contains('leaf-left')?-1:1,corner:e.clientY<r.top+r.height/2?'top':'bottom'};book.setPointerCapture(e.pointerId);}});
+  book.addEventListener('pointermove',e=>{if(pageGrab?.id===e.pointerId){const g=pageGrab,dx=e.clientX-g.x;if(Math.abs(dx)<5||Math.abs(dx)<Math.abs(e.clientY-g.y)*.65)return;const direction=dx<0?1:-1;if(direction!==g.side)return;if(!startTurn(direction,g.corner))return;turn.pointer=e.pointerId;turn.startX=g.x;turn.moved=true;pageGrab=null;}if(!turn||turn.finishing||turn.pointer!==e.pointerId)return;const distance=(turn.startX-e.clientX)*turn.direction;if(Math.abs(distance)>4)turn.moved=true;followTurn(Math.acos(Math.max(-1,Math.min(1,1-distance/turn.width)))/Math.PI);});
   book.addEventListener('pointerup',e=>{if(pageGrab?.id===e.pointerId){pageGrab=null;if(book.hasPointerCapture(e.pointerId))book.releasePointerCapture(e.pointerId);return;}if(!turn||turn.pointer!==e.pointerId)return;const distance=(turn.startX-e.clientX)*turn.direction,commit=!turn.moved||distance>=12;turn.pointer=null;if(book.hasPointerCapture(e.pointerId))book.releasePointerCapture(e.pointerId);settleTurn(commit);e.preventDefault();});
   function cancelPageGesture(e){if(pageGrab?.id===e.pointerId)pageGrab=null;if(turn?.pointer===e.pointerId){turn.pointer=null;settleTurn(false);}}
   book.addEventListener('pointercancel',cancelPageGesture);book.addEventListener('lostpointercapture',cancelPageGesture);
@@ -218,7 +222,7 @@
     document.querySelectorAll('.drop-ready,.drop-blocked').forEach(n=>n.classList.remove('drop-ready','drop-blocked'));
     const hit=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot],[data-pile-drop]');if(hit){const blocked=hit.hasAttribute('data-slot')&&layout.slots[Number(hit.dataset.slot)];if(!blocked)hit.classList.add('drop-ready');}
   }
-  table.addEventListener('pointerdown',e=>{const source=e.target.closest('[data-card-key]');if(!source||source.disabled||e.button!==0||turn||drag)return;const rect=source.getBoundingClientRect();drag={id:e.pointerId,key:source.dataset.cardKey,source,rect,x:e.clientX,y:e.clientY,grabX:e.clientX-rect.left,grabY:e.clientY-rect.top,moved:false};table.setPointerCapture(e.pointerId);});
+  table.addEventListener('pointerdown',e=>{const source=e.target.closest('[data-card-key]');if(!source||source.disabled||e.button!==0||turn||drag||!binderAvailable())return;const rect=source.getBoundingClientRect();drag={id:e.pointerId,key:source.dataset.cardKey,source,rect,x:e.clientX,y:e.clientY,grabX:e.clientX-rect.left,grabY:e.clientY-rect.top,moved:false};table.setPointerCapture(e.pointerId);});
   table.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;updateCardDrag(e);});
   table.addEventListener('pointerup',e=>{if(!drag||e.pointerId!==drag.id)return;const current=drag,c=cards.find(c=>c.key===current.key),hit=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot],[data-pile-drop]'),from=current.ghost?.getBoundingClientRect();const blocked=current.moved&&(hit?.hasAttribute('data-slot')&&layout.slots[Number(hit.dataset.slot)]);clearDrag({keepGhost:blocked});if(table.hasPointerCapture(e.pointerId))table.releasePointerCapture(e.pointerId);if(!c)return;
     if(blocked){returnCard(current);note('That sleeve is occupied. Use the stacks to make room.');}
@@ -229,7 +233,12 @@
   });
   table.addEventListener('pointercancel',()=>clearDrag());table.addEventListener('lostpointercapture',()=>{if(drag)clearDrag();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(turn){e.preventDefault();settleTurn(false);}if(drag){e.preventDefault();clearDrag();}}});
-  spreadMedia.addEventListener('change',()=>{clearDrag();if(turn)finishTurn(false);page=Math.floor(page/pageStep())*pageStep();if(theme==='binder')renderCards();});
+  function updateBinderViewport(){
+    if(theme!=='binder')return;clearDrag();pageGrab=null;
+    if(turn){cancelAnimationFrame(turn.frame);cancelAnimationFrame(turn.inputFrame);turn.sheet.remove();turn=null;book.classList.remove('page-turning');delete book.dataset.turnProgress;}
+    if(!binderAvailable()&&$('detail').open)$('detail').close();renderCards();
+  }
+  binderMedia.addEventListener('change',updateBinderViewport);window.addEventListener('resize',updateBinderViewport);
 
   let heldRenderer=null;
   $('detail').addEventListener('close',()=>{heldRenderer?.destroy();heldRenderer=null;});

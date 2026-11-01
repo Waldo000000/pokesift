@@ -9,13 +9,13 @@ const root=path.resolve(__dirname,'..'),port=8806,base=`http://127.0.0.1:${port}
     for(let n=0;n<100;n++){try{if((await fetch(base+'/healthz')).ok)break;}catch{}if(n===99)throw Error('Fixture server unavailable');await new Promise(r=>setTimeout(r,100));}
     browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||(fs.existsSync('/usr/bin/chromium')?'/usr/bin/chromium':undefined),args:['--no-sandbox']});
     for(const mobile of [false,true]){
-      const c=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1280,height:1000}});
+      const c=await browser.newContext({viewport:mobile?{width:844,height:390}:{width:1280,height:1000}});
       await c.route('**/api/**',r=>{providerCalls++;return r.abort();});
       await c.addInitScript(()=>{const slots=Array(180).fill(null);for(let i=0;i<14;i++)slots[i+9]='card-'+i;localStorage.setItem('pokesift.prototype.physical.v2',JSON.stringify({slots,piles:[[],[]],positions:{}}));});
       const p=await c.newPage();p.on('pageerror',e=>errors.push(e.message));
       await p.goto(base+'/concepts/binder.html');await p.locator('.binder-book').scrollIntoViewIfNeeded();
       await p.evaluate(()=>Promise.allSettled([...document.images].map(img=>img.decode())));
-      const step=mobile?1:2;
+      const step=1;
       assert.equal(await p.locator('.page-corner span').count(),0,'Resting pages must not have folded triangle decorations');
       const corners=await p.locator('.page-corner').evaluateAll(nodes=>nodes.map(n=>({background:getComputedStyle(n).backgroundColor,image:getComputedStyle(n).backgroundImage,label:n.getAttribute('aria-label')})));
       assert(corners.every(x=>x.background==='rgba(0, 0, 0, 0)'&&x.image==='none'&&x.label),'Invisible corner grab targets remain accessible');
@@ -45,13 +45,13 @@ const root=path.resolve(__dirname,'..'),port=8806,base=`http://127.0.0.1:${port}
         const transforms=await p.locator('.page-strip').evaluateAll(nodes=>nodes.map(n=>n.style.transform));assert(new Set(transforms).size===3,'The physical fold still bends across pocket gutters');
         await p.mouse.move(x-direction*leaf.width*2,y,{steps:10});await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
         assert.equal(await p.locator('.binder-book').getAttribute('data-turn-progress'),'1.000');
-        await p.locator('.binder-book').screenshot({path:`/tmp/pokesift-binder-${mobile?'phone':'spread'}-${direction}-landed.png`});
+        await p.screenshot({path:`/tmp/pokesift-binder-${mobile?'phone':'spread'}-${direction}-landed.png`});
         await p.mouse.up();await p.locator('.turning-sheet').waitFor({state:'detached'});
         await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
         const trace=await p.evaluate(()=>{cancelAnimationFrame(window.turnProbe);return turnTrace;});
         assert(trace.some(s=>s.page===expected&&s.overlay),'The prepared destination is installed underneath the landed sheet before it disappears');
         assert(trace.some(s=>s.page===expected&&!s.overlay),'The completed resting page is observed after the overlay retires');
-        assert(trace.every(s=>s.leaves===step),'No rendered frame has an empty or partial resting spread');
+        assert(trace.every(s=>s.leaves===2),'No rendered frame has an empty or partial resting spread');
         assert(trace.filter(s=>s.page===expected&&!s.overlay).every(s=>s.imagesReady),'The revealed resting page must already have decoded artwork');
         assert.equal(Number(await p.locator('#binder-spread').getAttribute('data-start-page')),expected);
         const reuse=await p.evaluate(()=>window.preparedUnderlay.some(n=>[...document.querySelector('#binder-spread').children].includes(n)));
