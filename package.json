@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "test:browser": "node tests/browser.cjs",
-    "check": "node --check dist/app.js && node --check dist/photo-store.js && node --check dist/auth.js && node --check dist/collection-views.js && node --check dist/collection-room.js && node --check dist/concepts/concepts.js && node --check dist/concepts/tactile.js && node --check dist/card-effects.js && node --check dist/card-details.js && node --check dist/concepts/card-study.js && node --check dist/motion.js && node --check dist/account.js && node --check dist/cloud-sync.js && node --check dist/workspace.js && node --check dist/sets.js",
+    "check": "node --check dist/app.js && node --check dist/photo-store.js && node --check dist/auth.js && node --check dist/collection-views.js && node --check dist/collection-room.js && node --check dist/concepts/concepts.js && node --check dist/concepts/tactile.js && node --check dist/card-effects.js && node --check dist/card-details.js && node --check dist/concepts/card-study.js && node --check dist/motion.js && node --check dist/account.js && node --check dist/cloud-sync.js && node --check dist/workspace.js && node --check dist/sets.js && node --check dist/pwa.js && node --check dist/sw.js && node --check dist/offline.js",
     "test:concepts": "node tests/concepts.cjs",
     "test:collection": "node tests/collection-views.cjs",
     "test:foil": "node tests/card-effects.cjs",
@@ -18,7 +18,8 @@
     "test:workspace": "node tests/workspace.cjs",
     "test:friend-invites": "node tests/friend-invites.cjs",
     "test:binder-spreads": "node tests/binder-spreads.cjs",
-    "test:sets": "node tests/sets.cjs"
+    "test:sets": "node tests/sets.cjs",
+    "test:install": "node tests/install.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

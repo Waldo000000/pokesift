@@ -113,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
         ancestors = "'self'" if urlsplit(self.path).path == '/collection-room.html' else "'none'"
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob: data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors " + ancestors)
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors " + ancestors)
         if cookie:
             for item in cookie if isinstance(cookie,list) else [cookie]:
                 self.send_header('Set-Cookie', item)
@@ -231,11 +231,14 @@ class Handler(BaseHTTPRequestHandler):
         files.update({f'/motion.{ext}': (f'motion.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/workspace.{ext}': (f'workspace.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/sets.{ext}': (f'sets.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
+        files.update({f'/pwa.{ext}': (f'pwa.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
+        files.update({'/manifest.webmanifest': ('manifest.webmanifest', 'application/manifest+json; charset=utf-8'), '/sw.js': ('sw.js', 'text/javascript'), '/offline.html': ('offline.html', 'text/html; charset=utf-8'), '/offline.js': ('offline.js', 'text/javascript')})
+        files.update({f'/icons/{name}.png': (f'icons/{name}.png', 'image/png') for name in ('app-192', 'app-512', 'app-maskable-512', 'apple-touch-icon')})
         files.update({f'/card-effects.{ext}': (f'card-effects.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/{name}': (name,mime) for name,mime in [('account.js','text/javascript'),('cloud-sync.js','text/javascript'),('cloud.css','text/css'),('privacy.html','text/html; charset=utf-8')]})
         if self.path in files:
             name, mime = files[self.path]
-            return self.send(200, (ROOT / name).read_bytes(), mime)
+            return self.send(200, (ROOT / name).read_bytes(), mime, extra_headers={'Service-Worker-Allowed': '/'} if self.path == '/sw.js' else None)
         if not self.authorize():
             return
         if self.path == '/api/session':

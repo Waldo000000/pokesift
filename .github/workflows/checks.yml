@@ -32,7 +32,7 @@ jobs:
           TEST_POSTGRES_URL: postgresql://pokesift:fixture-only@127.0.0.1:5432/pokesift_test
       - run: npm run check
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:browser
       - run: npm run test:concepts
       - run: npm run test:collection
@@ -48,3 +48,4 @@ jobs:
       - run: npm run test:workspace
       - run: npm run test:friend-invites
       - run: npm run test:sets
+      - run: npm run test:install

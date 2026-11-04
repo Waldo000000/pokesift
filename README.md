@@ -42,6 +42,19 @@ Live camera captures use a portrait frame with the proportions of a Pokémon car
 
 Camera uploads retain their source dimensions, crop rectangle and zoom in the collection and backups. The archived scan image is the exact cropped upload; the full surrounding webcam frame is not retained.
 
+## Install on Android or iPad
+
+Open https://pokesift-dev.onrender.com, then **Collection tools (•••) → Install
+PokéSift**. On Android, use the Install button or Chrome’s **Install app / Add
+to Home screen** menu. On iPad, use Safari’s **Share → Add to Home Screen**,
+turn on **Open as Web App** if shown, then **Add**. Installation help is also
+available before sign-in.
+
+PokéSift opens from its own icon in an app window. Sign in with your usual
+Google account to sync your collection; the installed app may ask you to sign
+in again. Scanning and syncing need an internet connection. See the
+[installation and update guide](docs/installable-app.md).
+
 ## Browsing your collection
 
 The compact header keeps **Add cards** and view navigation available. Fan, Binder and Zoo use the remaining viewport; **Sort & filter**, **Help & options** and **Filter & arrange** hold their secondary controls and instructions. Search stays directly available in Fan and Zoo. Recent camera results remain visible alongside capture controls.
