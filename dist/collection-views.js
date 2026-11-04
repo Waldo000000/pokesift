@@ -28,11 +28,11 @@
     collectionViews=sanitizeLayout(collectionViews);
     return {cards,pokemon,art,layout:structuredClone(collectionViews),readOnly:readOnlyStorage,unclassified:cards.filter(c=>!c.speciesIds.length).map(c=>({key:c.key,name:c.name})),fx:fxLabel(),artUnavailable:pokemon.filter(p=>failedArt.has(p.id)).length};
   }
-  function refresh(){if(mode==='grid'||!engine)return;const data=snapshot(),fingerprint=JSON.stringify(data);if(fingerprint!==lastSnapshot){lastSnapshot=fingerprint;engine.update(data);}if(mode==='zoo')ensureArtwork(data.pokemon.map(p=>p.id));}
+  function refresh(){if(mode==='sets'){window.PokeSiftSets?.refresh();return;}if(mode==='grid'||!engine)return;const data=snapshot(),fingerprint=JSON.stringify(data);if(fingerprint!==lastSnapshot){lastSnapshot=fingerprint;engine.update(data);}if(mode==='zoo')ensureArtwork(data.pokemon.map(p=>p.id));}
   async function ensureArtwork(ids){if(artLoading)return;const queue=ids.filter(id=>!artwork.has(id)&&!failedArt.has(id));if(!queue.length)return;artLoading=true;try{while(queue.length&&mode==='zoo'){await Promise.all(queue.splice(0,2).map(async id=>{try{const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),16000);let response;try{response=await fetch('/api/pokemon-art?id='+id,{credentials:'same-origin',signal:controller.signal,cache:'force-cache'});}finally{clearTimeout(timeout);}if(!response.ok)throw Error();const blob=await response.blob();if(blob.size>2*1024*1024||blob.type!=='image/png')throw Error();const data=await PokeSiftPhotos.dataURL(blob);artwork.set(id,data);}catch{failedArt.add(id);}}));if(mode==='zoo'&&engine){lastSnapshot='';refresh();}}}finally{artLoading=false;if(mode==='zoo'&&engine)refresh();}}
-  function select(next){if(!['grid','binder','desk','zoo'].includes(next))return;mode=next;engine=null;lastSnapshot='';for(const b of document.querySelectorAll('button[data-collection-view]')){b.classList.toggle('active',b.dataset.collectionView===mode);b.setAttribute('aria-pressed',String(b.dataset.collectionView===mode));}
-    $('grid-browsing').hidden=mode!=='grid';$('immersive-browsing').hidden=mode==='grid';document.body.dataset.collectionView=mode;fitBinder();
-    const previous=$('collection-room'),frame=previous.cloneNode();frame.removeAttribute('src');previous.replaceWith(frame);if(mode==='grid')return;frame.title={binder:'Your card binder',desk:'Your card fan',zoo:'Your Pokémon Zoo'}[mode];frame.src='/collection-room.html#'+mode;
+  function select(next){if(!['grid','binder','desk','zoo','sets'].includes(next))return;window.PokeSiftSets?.hide();mode=next;engine=null;lastSnapshot='';for(const b of document.querySelectorAll('button[data-collection-view]')){b.classList.toggle('active',b.dataset.collectionView===mode);b.setAttribute('aria-pressed',String(b.dataset.collectionView===mode));}
+    $('grid-browsing').hidden=mode!=='grid';$('sets-browsing').hidden=mode!=='sets';$('immersive-browsing').hidden=mode==='grid'||mode==='sets';document.body.dataset.collectionView=mode;fitBinder();
+    const previous=$('collection-room'),frame=previous.cloneNode();frame.removeAttribute('src');previous.replaceWith(frame);if(mode==='grid')return;if(mode==='sets'){window.PokeSiftSets?.show();return;}frame.title={binder:'Your card binder',desk:'Your card fan',zoo:'Your Pokémon Zoo'}[mode];frame.src='/collection-room.html#'+mode;
   }
   window.PokeSiftRoomBridge={
     open:()=>({theme:mode,...snapshot()}),
@@ -45,7 +45,7 @@
     binderPhone,
     notice:notify,
     retryArtwork(){failedArt.clear();refresh();},
-    valid:()=>document.body.dataset.auth==='signed-in'&&mode!=='grid'
+    valid:()=>document.body.dataset.auth==='signed-in'&&['binder','desk','zoo'].includes(mode)
   };
   window.PokeSiftViews={refresh,sanitizeLayout,speciesOf,detect,select};
   for(const button of document.querySelectorAll('button[data-collection-view]'))button.onclick=()=>select(button.dataset.collectionView);

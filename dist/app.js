@@ -270,6 +270,7 @@ function renderDetail() {
   renderRemoval(e);
   window.PokeSiftWorkspace?.renderDetail(e);
   window.PokeSiftCardDetails?.render(e);
+  window.PokeSiftSets?.updateDetail(e);
 }
 $('valuation-choice').onchange = event => {
   const e = entries.find(e => e.id === focusedId); if (!e) return;

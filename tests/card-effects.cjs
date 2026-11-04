@@ -57,7 +57,7 @@ try{
   for(let i=0;i<60;i++){try{if((await fetch(base+'/healthz')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
   browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||(fs.existsSync('/usr/bin/chromium')?'/usr/bin/chromium':undefined),args:['--no-sandbox']});
   const context=await browser.newContext({viewport:{width:393,height:851},hasTouch:true,isMobile:true});let paid=0;const errors=[];
-  await context.route('**/api/**',route=>{const url=new URL(route.request().url());if(url.pathname==='/api/session')return route.fulfill({json:{authenticated:true}});if(url.pathname==='/api/exchange-rates')return route.fulfill({json:{base:'AUD',date:'2026-10-27',rates:{AUD:1,USD:.5},source:'Fixture',fetchedAt:new Date().toISOString()}});paid++;return route.abort();});
+  await context.route('**/api/**',route=>{const url=new URL(route.request().url());if(url.pathname==='/api/session')return route.fulfill({json:{authenticated:true}});if(url.pathname==='/api/set-catalog'&&!url.search)return route.fulfill({json:JSON.parse(fs.readFileSync(path.join(root,'data/set-catalog-en.json')))});if(url.pathname==='/api/exchange-rates')return route.fulfill({json:{base:'AUD',date:'2026-10-27',rates:{AUD:1,USD:.5},source:'Fixture',fetchedAt:new Date().toISOString()}});paid++;return route.abort();});
   const page=await context.newPage();page.on('dialog',dialog=>dialog.accept());page.on('pageerror',e=>errors.push(e.message));
   await page.goto(base+'/concepts/card-study.html');await page.waitForFunction(()=>document.querySelector('#card-art').naturalWidth>0);
   assert.equal(await page.locator('#card').getAttribute('data-foil-profile'),'cosmos');

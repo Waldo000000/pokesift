@@ -8,7 +8,7 @@ try{
   browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||(fs.existsSync('/usr/bin/chromium')?'/usr/bin/chromium':undefined),args:['--no-sandbox']});
   const context=await browser.newContext({viewport:{width:1024,height:768},hasTouch:true,isMobile:true,reducedMotion:'reduce'});
   let providerCalls=0;const errors=[];
-  await context.route('**/api/**',r=>{const pathname=new URL(r.request().url()).pathname;if(pathname==='/api/session')return r.fulfill({json:{authenticated:true}});if(pathname==='/api/exchange-rates')return r.fulfill({json:{base:'AUD',date:'2026-10-27',rates:{AUD:1,USD:.5},source:'Fixture',fetchedAt:new Date().toISOString()}});providerCalls++;return r.abort();});
+  await context.route('**/api/**',r=>{const pathname=new URL(r.request().url()).pathname;if(pathname==='/api/session')return r.fulfill({json:{authenticated:true}});if(pathname==='/api/set-catalog')return r.fulfill({json:JSON.parse(fs.readFileSync(path.join(root,'data/set-catalog-en.json')))});if(pathname==='/api/exchange-rates')return r.fulfill({json:{base:'AUD',date:'2026-10-27',rates:{AUD:1,USD:.5},source:'Fixture',fetchedAt:new Date().toISOString()}});providerCalls++;return r.abort();});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.goto(base+'/concepts/desk.html');
   assert.equal(await page.evaluate(()=>matchMedia('(prefers-reduced-motion: reduce)').matches),true);

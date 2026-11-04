@@ -47,3 +47,4 @@ jobs:
       - run: npm run test:catalog-review
       - run: npm run test:workspace
       - run: npm run test:friend-invites
+      - run: npm run test:sets

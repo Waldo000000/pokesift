@@ -15,6 +15,7 @@
   <script src="species-index.js" defer></script>
   <script src="collection-views.js" defer></script>
   <link rel="stylesheet" href="workspace.css"><script src="workspace.js" defer></script>
+  <link rel="stylesheet" href="sets.css"><script src="sets.js" defer></script>
 </head>
 <body class="workspace-app" data-auth="pending">
   <header class="topbar">
@@ -42,7 +43,8 @@
     <div id="storage-warning" class="notice warning" role="alert" hidden></div>
     <div id="photo-storage-warning" class="notice warning" role="alert" hidden></div>
     <div id="activity" class="activity" role="status" aria-live="polite" hidden></div>
-    <nav class="collection-views" aria-label="Browse your collection"><button class="active" data-collection-view="grid" aria-pressed="true">All cards</button><button data-collection-view="binder" aria-pressed="false">Binder</button><button data-collection-view="desk" aria-pressed="false">Fan</button><button data-collection-view="zoo" aria-pressed="false">Pokémon Zoo</button></nav>
+    <nav class="collection-views" aria-label="Browse your collection"><button class="active" data-collection-view="grid" aria-pressed="true">All cards</button><button data-collection-view="binder" aria-pressed="false">Binder</button><button data-collection-view="desk" aria-pressed="false">Fan</button><button data-collection-view="zoo" aria-pressed="false">Pokémon Zoo</button><button data-collection-view="sets" aria-pressed="false">Sets</button></nav>
+    <section id="sets-browsing" aria-label="Set collection" hidden></section>
     <section id="immersive-browsing" hidden><iframe id="collection-room" title="Your collection" allow="web-share"></iframe></section>
     <div id="grid-browsing">
     <section class="collection-tools" aria-label="Collection tools">
@@ -85,6 +87,7 @@
     <section class="session-results" aria-label="Recent scans"><div class="session-title"><h3>Coming into focus <span id="session-count">0</span></h3><span id="queue-state">Ready when you are</span></div><p id="session-empty">Capture a card. Its result will land here.</p><div id="result-tray" class="result-tray"></div></section>
     <input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
   </dialog>
+  <dialog id="set-catalog-detail" class="set-catalog-dialog" aria-labelledby="set-catalog-title"><header class="dialog-toolbar"><div><h2 id="set-catalog-title"></h2><p id="set-catalog-subtitle"></p></div><button id="close-set-catalog" class="round-button" aria-label="Close card details">×</button></header><div class="set-catalog-body"><div class="set-catalog-art"><img id="set-catalog-image" alt="Catalog card artwork" hidden><p id="set-catalog-art-status"></p></div><div id="set-catalog-copy"></div></div></dialog>
   <dialog id="detail-view" class="detail-dialog" aria-labelledby="detail-title">
     <button id="close-detail" class="round-button detail-close" aria-label="Close card details">✕</button>
     <div class="detail-image"><div class="foil-perspective"><div id="detail-tilt"><img id="detail-photo" alt="Photographed card"></div></div><p class="tilt-hint">Hold & drag to catch the light</p><span id="detail-badge" class="status-badge"></span><p id="detail-image-note" class="fineprint image-note"></p><button id="toggle-photo" class="text-button" hidden>View your photo</button></div>

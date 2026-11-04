@@ -4,6 +4,7 @@ from pikaqian import PikaQian, ProviderError
 from cloud_http import CloudHTTP
 from cloud_store import CloudError
 from pokemon_art import ArtworkCache
+from set_catalog import Catalog, INDEX as SET_INDEX
 import io
 from http.cookies import SimpleCookie, CookieError
 from auth import mint_token, verify_token, LIFETIMES
@@ -229,6 +230,7 @@ class Handler(BaseHTTPRequestHandler):
         files['/card-details.js'] = ('card-details.js', 'text/javascript')
         files.update({f'/motion.{ext}': (f'motion.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/workspace.{ext}': (f'workspace.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
+        files.update({f'/sets.{ext}': (f'sets.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/card-effects.{ext}': (f'card-effects.{ext}', mime) for ext, mime in [('css', 'text/css'), ('js', 'text/javascript')]})
         files.update({f'/{name}': (name,mime) for name,mime in [('account.js','text/javascript'),('cloud-sync.js','text/javascript'),('cloud.css','text/css'),('privacy.html','text/html; charset=utf-8')]})
         if self.path in files:
@@ -239,6 +241,26 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/session':
             return self.send(200, b'{"authenticated":true}')
         target = urlsplit(self.path)
+        if target.path in ('/api/set-catalog', '/api/set-card', '/api/set-art'):
+            query = parse_qs(target.query, keep_blank_values=True)
+            required = {'set'} if target.path == '/api/set-catalog' else {'set', 'card'}
+            allowed = required | ({'quality'} if target.path == '/api/set-art' else set())
+            if target.path == '/api/set-catalog' and not query:
+                return self.send(200, json.dumps(SET_INDEX).encode())
+            if not required <= set(query) <= allowed or any(len(v) != 1 for v in query.values()):
+                return self.error(400, 'Invalid catalog request')
+            try:
+                if target.path == '/api/set-art':
+                    body = self.server.set_catalog.artwork(query['set'][0], query['card'][0], query.get('quality', ['low'])[0])
+                    return self.send(200, body, 'image/webp', cache='private, max-age=604800')
+                value = self.server.set_catalog.cards(query['set'][0]) if target.path == '/api/set-catalog' else self.server.set_catalog.card(query['set'][0], query['card'][0])
+                return self.send(200, json.dumps(value).encode())
+            except LookupError:
+                return self.error(404, 'Catalog artwork not supplied for this card')
+            except ValueError:
+                return self.error(400, 'Invalid catalog identity or response')
+            except Exception:
+                return self.error(503, 'Set catalog temporarily unavailable. Please try again.')
         if target.path == '/api/pokemon-art':
             query = parse_qs(target.query)
             if set(query) != {'id'} or len(query['id']) != 1:
@@ -433,6 +455,7 @@ def make_server(port=8000, forward_request=forward, public_origin='', bind='127.
     server.public_origin = public_origin
     server.forward = forward_request
     server.pokemon_art = ArtworkCache()
+    server.set_catalog = Catalog()
     server.card_image = fetch_card_image
     server.exchange_rates = fetch_exchange_rates
     server.fx_cache = None
